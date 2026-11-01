@@ -201,5 +201,6 @@ export const PROVIDER_DISPLAY_NAMES: Partial<Record<ProviderDriverKind, string>>
   [MUSE_DRIVER_KIND]: "Muse Code",
   [ACP_REGISTRY_DRIVER_KIND]: "ACP Registry",
   [PI_DRIVER_KIND]: "Pi",
+  [ProviderDriverKind.make("omp")]: "OMP",
   [OPENCODE_DRIVER_KIND]: "OpenCode",
 };

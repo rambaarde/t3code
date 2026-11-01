@@ -36,6 +36,11 @@ Forks use Pi's CLI in the destination directory because RPC session switching re
 session's cwd. Provider switches still use portable handoff summaries.
 See the [adapter](../../packages/provider-pi/src/server/adapter.ts).
 
+OMP runs the user's `omp` install through its native newline-delimited RPC protocol. Its adapter
+normalizes assistant/tool streams into T3 work-log items, mirrors OMP `todoPhases` into live TODO
+plan artifacts, and subscribes to native subagent lifecycle/progress frames for the agent activity
+rail. See the [OMP adapter](../../packages/provider-omp/src/server/adapter.ts).
+
 Antigravity separates account profiles per instance while sharing installed executables across the
 environment. It forces file-based credential storage because the native macOS keychain entry would
 otherwise be shared across instances. The launch environment removes ambient Google credentials,
