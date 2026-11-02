@@ -268,8 +268,18 @@ export default async function t3McpExtension(pi: ExtensionAPI) {
       if (name === undefined || seen.has(name)) continue;
       const command = commands.find((candidate) => candidate.name === "skill:" + name);
       if (command === undefined) continue;
+      const directPath = (command as unknown as { readonly path?: unknown }).path;
+      const path =
+        typeof command.sourceInfo?.path === "string"
+          ? command.sourceInfo.path
+          : typeof directPath === "string"
+            ? directPath
+            : undefined;
+      if (path === undefined) {
+        ctx.ui.notify(\`Could not locate skill \${name}.\`, "error");
+        continue;
+      }
       seen.add(name);
-      const path = command.sourceInfo.path;
       try {
         const body = stripFrontmatter(await NodeFSP.readFile(path, "utf8")).trim();
         blocks.push(
