@@ -83,3 +83,32 @@ describe("T3 device instructions", () => {
     assert.notInclude(t3AcpPromptWithInstructions({ prompt: "Hi.", state }), "## T3 Code devices");
   });
 });
+
+describe("T3 web research instructions", () => {
+  it("requires both search methods and evidence gaps", () => {
+    for (const requirement of [
+      "ai-internet-search",
+      "built-in web search",
+      "next_queries",
+      "certainty",
+      "conflicts",
+      "could_not_establish",
+    ]) {
+      assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, requirement);
+    }
+  });
+
+  it("keeps unrelated retrieval failures out of answer gaps", () => {
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "Never include retrieval failures");
+    assert.include(T3_CODE_ORCHESTRATION_INSTRUCTIONS, "Could not establish: Nothing material.");
+  });
+});
+
+describe("T3 task plan instructions", () => {
+  it("does not leave a running step after the turn ends", () => {
+    assert.include(
+      T3_CODE_ORCHESTRATION_INSTRUCTIONS,
+      "Never leave a step running after the turn ends.",
+    );
+  });
+});

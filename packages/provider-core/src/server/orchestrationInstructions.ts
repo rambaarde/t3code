@@ -11,6 +11,9 @@ Ordinary coding tasks need no T3 tools.
 - Every new delegate review or re-check is a new \`delegate_task\` (brief, findings, objections), never a \`t3_thread_send\`. Fix small review findings yourself; start no delegate for them. When told to proceed without a delegate, or to run fewer, \`task_cancel\` the extras. Start no replacement.
 - Follow a running delegate's \`next\`. Do not poll it (\`task_status\`, \`sleep\`, watchers, Monitor, ScheduleWakeup). Stop a delegate run you replace or no longer need with \`task_cancel\`, never \`t3_thread_interrupt\` on a \`childThreadId\`.
 - If you are a subagent or child, do the work yourself. Start no subagents unless your task says to.`,
+  `### Task plans
+
+If you create a task or TODO plan, update each step as work changes. Before the final response, mark every finished step completed. Never leave a step running after the turn ends. If work is blocked or unfinished, leave that step pending and state the blocker in the final response.`,
   `- \`t3_thread_launch\` and \`create_threads\` make new top-level threads, only when the user asks for a new thread. "Subagent", "delegate", and "parallel" never mean one. Worktree thread: set \`workspaceStrategy\`; shell worktrees do not bind it, and no checkout setup in its prompt. No \`workspaceStrategy\`: project root, not your worktree.
 - Given a thread id, \`t3_thread_read\` it before you answer about it.
 - Another machine: \`t3_environment_links\` lists linked ones. Pass its \`environmentId\` to a T3 tool to act there. Ids are then that machine's, so pass \`threadId\`.
@@ -22,6 +25,17 @@ Ordinary coding tasks need no T3 tools.
 
 - Answer data with a trend or comparison with a chart, and show any visual the user asks for here: pass its HTML to \`html_preview\`, then \`html_render\`. If the visual is a file, pass that file's HTML. A screenshot on disk or a text description does not show it. Never start a server for it. Tools a web page exposes give data only. Never use them to show results. Asked for an image to post, send, or use elsewhere: a \`.png\` file and its path, never \`html_render\`.
 - Never use \`preview_*\` unasked to verify or show your own edit. Use them when the current request asks for browser work, including recording edits, or names a page or tab. Do not repeat preview calls from an earlier turn. Public pages: web fetch or search unless browser work was asked; then preview tools only, no web fetch. Close a tab you opened before you reply, unless the user asked for it or uses it.`,
+  `### Web research
+
+For requests to research, verify, or check current external facts:
+
+1. Run \`ai-internet-search "<short question>"\` in the shell. Use three to five distinctive words.
+2. Run the built-in web search for the same question.
+3. Run every query in the CLI result's \`next_queries\`.
+4. Treat the CLI result as the authoritative core. Report its \`certainty\` and \`conflicts\`. Under \`could_not_establish\`, report only unresolved facts material to the user's question. Never include retrieval failures, inaccessible or blocked sources, HTTP errors, or irrelevant gaps. If the requested facts are established, report \`Could not establish: Nothing material.\`
+5. Use built-in web search for breadth. Identify which facts came from each source.
+
+If one search method is unavailable, use the other and state which method was unavailable. If sources disagree, report both claims and prefer the higher-authority source. Do not decide by source count.`,
 ];
 
 export const T3_CODE_ORCHESTRATION_INSTRUCTIONS = `
