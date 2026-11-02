@@ -692,7 +692,12 @@ export function contextChipVariables(colors: ThemeColors): Readonly<Record<strin
   };
   const isDark = (color: ThemeRgbColor) => themeRelativeLuminance(color) < 0.179;
   const messageMatchesCanvas = isDark(onCanvas(colors.messageSurface)) === isDark(canvas);
-  const surfaces = [canvas, onCanvas(colors.surface), onCanvas(colors.surfaceRaised)];
+  const surfaces = [
+    canvas,
+    onCanvas(colors.surface),
+    onCanvas(colors.surfaceRaised),
+    onCanvas(colors.input),
+  ];
   if (messageMatchesCanvas) surfaces.push(onCanvas(colors.messageSurface));
   const contrastOnSurfaces = (color: ThemeRgbColor) =>
     Math.min(...surfaces.map((surface) => themeContrastRatio(color, surface)));
