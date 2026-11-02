@@ -229,7 +229,7 @@ const runPiVersionCommand = Effect.fn("PiProviderStatus.runPiVersionCommand")(fu
   environment: NodeJS.ProcessEnv,
 ) {
   const command = piSettings.binaryPath || "pi";
-  const spawnCommand = yield* resolveSpawnCommand(command, ["--version"], {
+  const spawnCommand = yield* resolveSpawnCommand(command, ["--help"], {
     env: environment,
   });
   return yield* spawnAndCollect(
@@ -386,7 +386,7 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
         version: null,
         status: "error",
         auth: { status: "unknown" },
-        message: "OMP CLI is installed but timed out while running `omp --version`.",
+        message: "OMP CLI is installed but timed out while running `omp --help`.",
       },
     });
   }
