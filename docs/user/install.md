@@ -164,6 +164,7 @@ computer.
 | Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.                                                              |
 | Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
 | Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
+| OMP         | Install and authenticate [OMP](https://omp.sh/docs/quickstart), then enable OMP in Settings → Providers.                                                  |
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
 | Pi          | Install [Pi](./providers-pi.md#set-up-pi) with Node.js 22.19 or newer, then run `pi` and `/login`.                                                        |
@@ -175,6 +176,10 @@ Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set it
 Cursor's executable is `cursor-agent`, although its login command is
 `agent login`. Codex connected through ChatGPT and Antigravity can use their
 managed runtimes without a `PATH` entry.
+
+OMP activity uses the same conversation surfaces as the other native providers. TODO phases,
+subagents, commands, file operations, searches, browser work, and other harness tools appear as
+typed cards. Expand a grouped work summary to inspect each tool's arguments, result, and status.
 
 T3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended

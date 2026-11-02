@@ -96,10 +96,10 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
           aria-label={label}
           aria-description={statusSummary}
           className={cn(
-            "flex w-full min-w-0 items-center gap-2.5 py-2 pr-3.25 text-left transition-opacity hover:opacity-100",
+            "flex w-full min-w-0 items-center gap-2.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-muted/30",
             expanded || summary.active
               ? "text-foreground opacity-100"
-              : "text-muted-foreground opacity-55",
+              : "text-muted-foreground opacity-70",
           )}
         >
           <span className="flex shrink-0 items-center -space-x-1.5" aria-hidden>
@@ -144,15 +144,19 @@ const V2SubagentGroup = memo(function V2SubagentGroup({
         {/* Virtualized rows must settle before disclosure scroll anchoring resumes. */}
         <CollapsiblePanel animate={false}>
           {expanded ? (
-            <div className="mt-1 mb-1 rounded-lg border border-border/60 bg-card/30 p-1">
+            <div className="relative ms-3 mb-1 border-s border-border/70 ps-3">
               {members.map((item) => (
-                <V2LifecycleRow
-                  environmentId={ctx.activeThreadEnvironmentId}
+                <div
                   key={item.id}
-                  item={item}
-                  runs={ctx.runs}
-                  onOpenThread={ctx.onOpenThread}
-                />
+                  className="relative before:pointer-events-none before:absolute before:-start-3 before:top-0 before:h-3 before:w-3 before:rounded-bl-md before:border-b before:border-border/70"
+                >
+                  <V2LifecycleRow
+                    environmentId={ctx.activeThreadEnvironmentId}
+                    item={item}
+                    runs={ctx.runs}
+                    onOpenThread={ctx.onOpenThread}
+                  />
+                </div>
               ))}
             </div>
           ) : null}

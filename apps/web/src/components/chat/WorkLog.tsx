@@ -38,7 +38,12 @@ export function WorkLogBlock({
 export function WorkLogList({ children }: { children: ReactNode }) {
   return (
     <GroupedRows value>
-      <div className="flex min-w-0 flex-col">{children}</div>
+      <div
+        data-agent-log
+        className="relative ms-3 flex min-w-0 flex-col border-s border-border/70 pb-1 ps-3"
+      >
+        {children}
+      </div>
     </GroupedRows>
   );
 }
@@ -81,13 +86,15 @@ function WorkLogLine({ icon, label, trailing, wrapLabel }: RowContent) {
 }
 
 const interactionClassName =
-  "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
+  "cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 function useRowClassName(interactive: boolean) {
   const grouped = use(GroupedRows);
   return cn(
     "group/timeline-row relative w-full min-w-0 rounded-md px-0.5 text-left transition-colors",
-    grouped ? "py-0" : "py-0.5",
+    grouped
+      ? "py-0 before:pointer-events-none before:absolute before:-start-3 before:top-0 before:h-3 before:w-3 before:rounded-bl-md before:border-b before:border-border/70"
+      : "py-0.5",
     interactive && interactionClassName,
   );
 }

@@ -1,5 +1,6 @@
 import { TimelinePendingApprovalRow } from "./TimelinePendingApprovalRow";
 import { WorkLogButton, WorkLogList, WorkLogRow } from "./WorkLog";
+import { AgentThinkingIndicator } from "./AgentThinkingIndicator";
 import type { WorktreeSetupSnapshot } from "@t3tools/contracts";
 import { type ToolActivityIcon } from "@t3tools/contracts";
 import { liveThoughtLine } from "@t3tools/client-runtime/work-log/presentation";
@@ -11,7 +12,7 @@ import { memo, use, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { workEntryDisplayIndicatesToolFailure } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
-import { Minimize2Icon, XIcon } from "lucide-react";
+import { ChevronDownIcon, Minimize2Icon, XIcon } from "lucide-react";
 import { Button } from "../ui/button";
 import { getVirtualizedScrollFadeClassName } from "../ui/scroll-area";
 import {
@@ -279,32 +280,21 @@ export function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: 
   const { isCompacting, isPreparingWorktree, backgroundWorktreeSetup } =
     use(TimelineRowActivityCtx);
   const compacting = row.compacting === true || isCompacting;
-  const shimmer = isPreparingWorktree || compacting;
   const label = isPreparingWorktree ? (
-    "Setting up worktree…"
+    "Setting up worktree"
   ) : compacting ? (
-    <CompactingLabel createdAt={row.createdAt} />
-  ) : row.createdAt ? (
-    <>
-      Working for <WorkingTimer createdAt={row.createdAt} />
-    </>
+    <CompactingLabel />
   ) : (
-    "Working..."
+    "Working"
   );
+  const elapsed =
+    !isPreparingWorktree && row.createdAt ? <WorkingTimer createdAt={row.createdAt} /> : undefined;
   return (
-    <div className="border-b border-border/60 pb-2 pt-1">
-      <div className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums">
-        <span
-          ref={shimmer ? observeVisibleAnimation : undefined}
-          className="relative shrink-0 overflow-hidden whitespace-nowrap"
-        >
-          {label}
-          {shimmer ? <ActivityShimmerOverlay>{label}</ActivityShimmerOverlay> : null}
-        </span>
-        {backgroundWorktreeSetup ? (
-          <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
-        ) : null}
-      </div>
+    <div className="flex min-h-8 min-w-0 items-center gap-2 px-1 py-1.5">
+      <AgentThinkingIndicator label={label} elapsed={elapsed} />
+      {backgroundWorktreeSetup ? (
+        <BackgroundWorktreeSetupChip snapshot={backgroundWorktreeSetup} />
+      ) : null}
     </div>
   );
 }
@@ -343,17 +333,11 @@ function BackgroundWorktreeSetupChip({ snapshot }: { snapshot: WorktreeSetupSnap
   );
 }
 
-function CompactingLabel({ createdAt }: { createdAt: string | null }) {
+function CompactingLabel() {
   return (
     <span className="inline-flex items-center gap-1.5">
       <Minimize2Icon aria-hidden="true" className="size-3" />
-      {createdAt ? (
-        <span>
-          Compacting for <WorkingTimer createdAt={createdAt} />
-        </span>
-      ) : (
-        "Compacting…"
-      )}
+      Compacting
     </span>
   );
 }
@@ -365,14 +349,20 @@ export function ThinkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind:
   // A failed group keeps this disclosure while an approval waits, but nothing is thinking then.
   const live = ctx.pendingApprovals.size === 0;
   const activity = (
-    <LiveActivityRow label="Thinking" iconName="brain" active={live} shimmer={live} />
+    <AgentThinkingIndicator
+      active={live}
+      label={live ? "Thinking" : "Waiting for approval"}
+      elapsed={live && row.createdAt ? <WorkingTimer createdAt={row.createdAt} /> : undefined}
+      subtle={!live}
+    />
   );
   const { groupId } = row;
-  if (groupId === undefined) return activity;
+  if (groupId === undefined)
+    return <div className="flex min-h-7 items-center px-1">{activity}</div>;
   return (
     <button
       type="button"
-      className="group/live-work flex min-h-6 w-full max-w-full cursor-pointer items-center rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      className="group/live-work flex min-h-7 w-full max-w-full cursor-pointer items-center rounded-md px-1 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       aria-expanded={row.expanded === true}
       onClick={() => ctx.onToggleWorkGroup(groupId, row.id)}
     >
@@ -625,7 +615,19 @@ function WorkGroupHeader(props: {
       }
       label={<span className="block truncate">{props.label}</span>}
       trailing={
-        <TimelineRowTimestamp createdAt={props.createdAt} timestampFormat={props.timestampFormat} />
+        <span className="flex shrink-0 items-center gap-2">
+          <TimelineRowTimestamp
+            createdAt={props.createdAt}
+            timestampFormat={props.timestampFormat}
+          />
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={cn(
+              "size-3.5 text-muted-foreground transition-transform",
+              props.expanded && "rotate-180",
+            )}
+          />
+        </span>
       }
     />
   );

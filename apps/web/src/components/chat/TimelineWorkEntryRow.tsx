@@ -32,7 +32,17 @@ import {
 } from "../../session-logic";
 import ChatMarkdown from "../ChatMarkdown";
 import { ChatMarkdownAssetImage } from "./ChatMarkdownMedia";
-import { ChevronRightIcon, CircleAlertIcon, XIcon, RotateCcwIcon } from "lucide-react";
+import {
+  CheckCircle2Icon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  CircleAlertIcon,
+  CircleDashedIcon,
+  LoaderCircleIcon,
+  ListTodoIcon,
+  XIcon,
+  RotateCcwIcon,
+} from "lucide-react";
 import { Button, InlineButton } from "../ui/button";
 import { useAssetUrls } from "../../assets/assetUrls";
 import { useThreadShell } from "../../state/entities";
@@ -47,6 +57,7 @@ import { cn } from "~/lib/utils";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { FetchedToolOutput, V2ItemInspector } from "./V2ItemInspector";
 import { SubagentNotificationLink } from "./V2LifecycleRow";
+import { isNativeActivityCardItem, NativeActivityCard } from "./NativeActivityCard";
 import {
   TimelineRowCtx,
   TimelineRowActivityCtx,
@@ -66,6 +77,7 @@ import {
   workEntryIconName,
   THINKING_PREVIEW_PLUGINS,
   THOUGHT_PREVIEW_PLUGINS,
+  todoStepPresentationStatus,
 } from "./TimelineWorkEntryRow.logic";
 
 export function useThreadReadTarget(entry: TimelineWorkEntry, environmentId: EnvironmentId) {
@@ -148,6 +160,10 @@ type WorkEntryRowProps = {
   displayLabel?: string | undefined;
   onToggleEntry?: ((collapsed: boolean) => void) | undefined;
 };
+type TodoListItem = Extract<
+  NonNullable<TimelineWorkEntry["projectedItem"]>["item"],
+  { readonly type: "todo_list" }
+>;
 
 export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEntryRowProps) {
   const ctx = use(TimelineRowCtx);
@@ -170,6 +186,144 @@ export const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: WorkEn
     />
   );
 });
+
+function TodoListCard({
+  item,
+  workEntry,
+  workspaceRoot,
+}: {
+  item: TodoListItem;
+  workEntry: TimelineWorkEntry;
+  workspaceRoot: string | undefined;
+}) {
+  const ctx = use(TimelineRowCtx);
+  const { isWorking, latestRunId } = use(TimelineRowActivityCtx);
+  const projectedItem = workEntry.projectedItem;
+  const completed = item.steps.filter((step) => step.status === "completed").length;
+  const runActive = isWorking && workEntry.runId === latestRunId;
+  const hasRunningStep = item.steps.some((step) => step.status === "running");
+  const running = runActive && hasRunningStep;
+  const total = item.steps.length;
+  const complete = total > 0 && completed === total;
+  const stopped = !complete && !runActive && hasRunningStep;
+  const [open, setOpen] = useState(true);
+
+  if (!projectedItem) return null;
+  return (
+    <details
+      aria-label="Task plan"
+      data-todo-list-card
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="group/todo my-0.5"
+    >
+      <summary className="flex min-h-7 cursor-pointer list-none items-center gap-2 rounded-md px-1.5 py-1 text-xs outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
+        <ListTodoIcon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
+        <span className="font-medium text-foreground">Task plan</span>
+        <span className="text-2xs text-muted-foreground">
+          {completed}/{total}
+        </span>
+        <span className="flex-1" />
+        <span className="sr-only">
+          {complete ? "Complete" : running ? "In progress" : stopped ? "Stopped" : "Queued"}
+        </span>
+        {complete ? (
+          <CheckCircle2Icon
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-success-foreground"
+          />
+        ) : running ? (
+          <LoaderCircleIcon
+            aria-hidden="true"
+            className="size-3.5 shrink-0 animate-spin text-primary"
+          />
+        ) : (
+          <CircleDashedIcon
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-muted-foreground"
+          />
+        )}
+        <ChevronDownIcon
+          aria-hidden="true"
+          className="size-3.5 shrink-0 text-muted-foreground transition-transform group-open/todo:rotate-180"
+        />
+      </summary>
+
+      <ol className="relative ms-3 mt-0.5 space-y-0.5 border-s border-border/70 pb-1 ps-5">
+        {item.steps.map((step) => {
+          const presentationStatus = todoStepPresentationStatus(step.status, runActive);
+          const stepRunning = presentationStatus === "running";
+          const stepStopped = presentationStatus === "stopped";
+          return (
+            <li
+              key={step.id}
+              data-todo-step-status={presentationStatus}
+              className="relative flex min-w-0 items-center gap-2 py-1 text-xs before:absolute before:-start-5 before:top-0 before:h-3 before:w-3 before:rounded-bl-md before:border-b before:border-border/70"
+            >
+              <span
+                className={cn(
+                  "flex size-3.5 shrink-0 items-center justify-center",
+                  step.status === "completed"
+                    ? "text-success-foreground"
+                    : stepRunning
+                      ? "text-primary"
+                      : "text-muted-foreground/60",
+                )}
+              >
+                {step.status === "completed" ? (
+                  <CheckCircle2Icon aria-hidden="true" className="size-3.5" />
+                ) : stepRunning ? (
+                  <LoaderCircleIcon aria-hidden="true" className="size-3.5 animate-spin" />
+                ) : (
+                  <CircleDashedIcon aria-hidden="true" className="size-3.5" />
+                )}
+              </span>
+              <span
+                className={cn(
+                  "min-w-0 flex-1",
+                  step.status === "completed"
+                    ? "text-muted-foreground line-through"
+                    : stepRunning
+                      ? "font-medium text-foreground"
+                      : "text-foreground/80",
+                )}
+              >
+                {step.text}
+              </span>
+              {stepRunning || stepStopped ? (
+                <span
+                  className={cn(
+                    "shrink-0 text-2xs",
+                    stepRunning ? "text-primary" : "text-muted-foreground",
+                  )}
+                >
+                  {stepRunning ? "Working" : "Stopped"}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+
+      <details className="ms-8 border-s border-border/70 pb-1 ps-3">
+        <summary className="cursor-pointer list-none py-1 text-2xs text-muted-foreground transition-colors hover:text-foreground [&::-webkit-details-marker]:hidden">
+          Technical details
+        </summary>
+        <div className="mt-1 rounded-md bg-muted/30 p-2">
+          <V2ItemInspector
+            projectedItem={projectedItem}
+            environmentId={ctx.activeThreadEnvironmentId}
+            cwd={ctx.markdownCwd}
+            workspaceRoot={workspaceRoot}
+            onOpenToolDiff={ctx.onOpenToolDiff}
+            onImageExpand={ctx.onImageExpand}
+            source={ctx.turnItemSource}
+          />
+        </div>
+      </details>
+    </details>
+  );
+}
 
 function WorkEntryLogRow(props: WorkEntryRowProps) {
   const { workEntry, workspaceRoot, displayLabel } = props;
@@ -201,11 +355,20 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
     setExpanded(next);
   };
   const failureItem = workEntry.projectedItem?.item;
+  const activityItem = failureItem ?? workEntry.structuredPayload;
   const pendingApproval =
     failureItem?.type === "approval_request"
       ? ctx.pendingApprovals.get(failureItem.requestId)
       : undefined;
   if (pendingApproval) return <TimelinePendingApprovalRow approval={pendingApproval} />;
+  if (failureItem?.type === "todo_list") {
+    return <TodoListCard item={failureItem} workEntry={workEntry} workspaceRoot={workspaceRoot} />;
+  }
+  if (isNativeActivityCardItem(activityItem)) {
+    return (
+      <NativeActivityCard item={activityItem} workEntry={workEntry} workspaceRoot={workspaceRoot} />
+    );
+  }
   if (failureItem?.type === "error" && failureItem.status === "failed") {
     const warning = failureItem.failure.class === "usage_limit";
     const resetAt = failureItem.failure.resetAt;

@@ -530,6 +530,8 @@ type MessagesTimelineRowContent =
       createdAt: string | null;
       /** A running compaction owns the working row, so its divider appears only once it ends. */
       compacting?: true;
+      /** Keeps the active-turn boundary while a live activity row owns the visible status. */
+      indicatorHidden?: true;
     }
   | {
       kind: "thinking";
@@ -2135,6 +2137,26 @@ export function deriveMessagesTimelineRows(input: {
         id: LIVE_ACTIVITY_ROW_ID,
         createdAt: input.activeTurnStartedAt ?? null,
       });
+    }
+  }
+
+  // The live activity row is the run status. Keep the earlier Working row as a turn boundary, but
+  // hide its duplicate indicator unless it carries distinct compaction or background-setup state.
+  const backgroundSetupNeedsWorkingIndicator =
+    setupHandedOff && input.worktreeSetup?.phase === "running";
+  if (
+    nextRows.some((row) => row.id === LIVE_ACTIVITY_ROW_ID) &&
+    !backgroundSetupNeedsWorkingIndicator
+  ) {
+    const redundantWorkingRowIndex = nextRows.findIndex(
+      (row) => row.kind === "working" && row.compacting !== true,
+    );
+    const redundantWorkingRow = nextRows[redundantWorkingRowIndex];
+    if (redundantWorkingRow?.kind === "working") {
+      nextRows[redundantWorkingRowIndex] = {
+        ...redundantWorkingRow,
+        indicatorHidden: true,
+      };
     }
   }
 

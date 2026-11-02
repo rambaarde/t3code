@@ -1526,6 +1526,12 @@ describe("deriveMessagesTimelineRows", () => {
     const finalRow = rows.find((row) => row.id === "assistant-final-entry");
     expect(finalRow?.kind === "message" && finalRow.showAssistantMeta).toBe(true);
     expect(rows.at(-1)).toMatchObject({ kind: "thinking" });
+    expect(rows.find((row) => row.kind === "working")).toMatchObject({ indicatorHidden: true });
+    expect(
+      rows.filter(
+        (row) => row.kind === "thinking" || (row.kind === "working" && !row.indicatorHidden),
+      ),
+    ).toHaveLength(1);
   });
 
   it("does not show Thinking once the open run's provider turn has ended", () => {

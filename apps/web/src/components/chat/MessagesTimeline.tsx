@@ -1434,6 +1434,7 @@ function getItemType(item: MessagesTimelineRow) {
 }
 
 const TimelineRowContent = memo(function TimelineRowContent({ row }: { row: TimelineRow }) {
+  if (row.kind === "working" && row.indicatorHidden) return null;
   const isExpandedToolGroup = row.kind === "work" && row.isExpandedToolGroup;
   const isSubagentGroup = row.kind === "event" && row.projectedItem.item.type === "subagent";
   const isWorkLogRow =

@@ -9,6 +9,13 @@ import { formatWorkspaceRelativePath } from "../../filePathDisplay";
 import { type TimelineWorkEntry, type TimelineRow } from "./timelineRowContext";
 import { type WorkEntryIconName } from "./TimelineToolActivityIcon";
 
+export function todoStepPresentationStatus(
+  status: "pending" | "running" | "completed",
+  runActive: boolean,
+): "pending" | "running" | "completed" | "stopped" {
+  return status === "running" && !runActive ? "stopped" : status;
+}
+
 export function toolGroupSummaryIconName(
   kind: Extract<TimelineRow, { kind: "work-toggle" }>["summaryKind"],
 ): WorkEntryIconName {
