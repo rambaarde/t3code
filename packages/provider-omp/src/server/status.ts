@@ -2,6 +2,7 @@ import {
   type CustomModelSetting,
   type ServerProvider,
   type ServerProviderModel,
+  type ServerProviderSkill,
 } from "@t3tools/contracts";
 import type { OmpSettings } from "../settings.ts";
 import { causeErrorTag } from "@t3tools/shared/observability";
@@ -44,6 +45,7 @@ import {
   thinkingCapabilitiesForPiModel,
 } from "./thinkingCapabilities.ts";
 import {
+  parseOmpSkillListJson,
   parsePiDiscoveredCommands,
   withPiBuiltinSlashCommands,
   type PiDiscoveredCommands,
@@ -164,6 +166,44 @@ const makePiDiscoveryConnection = Effect.fnUntraced(function* (
   return connection;
 });
 
+const discoverOmpSkillsViaCli = Effect.fnUntraced(function* (
+  piSettings: OmpSettings,
+  environment: NodeJS.ProcessEnv,
+  cwd?: string,
+) {
+  const command = piSettings.binaryPath || "pi";
+  const spawnCommand = yield* resolveSpawnCommand(command, ["skill", "list", "--json"], {
+    env: environment,
+  });
+  const output = yield* spawnAndCollect(
+    command,
+    ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+      ...(cwd === undefined ? {} : { cwd }),
+      env: environment,
+      shell: spawnCommand.shell,
+    }),
+  );
+  return output.code === 0 ? parseOmpSkillListJson(output.stdout) : [];
+});
+
+const resolvePiDiscoveredCommands = Effect.fnUntraced(function* (
+  commandsData: Option.Option<unknown>,
+  piSettings: OmpSettings,
+  environment: NodeJS.ProcessEnv,
+  cwd?: string,
+): Effect.fn.Return<PiDiscoveredCommands, never, ChildProcessSpawner.ChildProcessSpawner> {
+  if (Option.isSome(commandsData)) return parsePiDiscoveredCommands(commandsData.value);
+  const skills: ReadonlyArray<ServerProviderSkill> = yield* discoverOmpSkillsViaCli(
+    piSettings,
+    environment,
+    cwd,
+  ).pipe(
+    Effect.timeout(VERSION_PROBE_TIMEOUT_MS),
+    Effect.catchCause(() => Effect.succeed([])),
+  );
+  return { slashCommands: [], skills };
+});
+
 const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function* (
   piSettings: OmpSettings,
   environment: NodeJS.ProcessEnv,
@@ -173,11 +213,14 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   const connection = yield* makePiDiscoveryConnection(piSettings, environment, launchArgs, cwd);
   const stateData = yield* connection.request({ type: "get_state" });
   const modelsData = yield* connection.request({ type: "get_available_models" });
-  const commandsData = yield* connection
-    .request({ type: "get_commands" })
-    .pipe(Effect.orElseSucceed(() => undefined));
   const discoveredModels = yield* Effect.fromResult(parseDiscoveredModels(modelsData, stateData));
-  const { slashCommands, skills } = parsePiDiscoveredCommands(commandsData);
+  const commandsData = yield* connection.request({ type: "get_commands" }).pipe(Effect.option);
+  const { slashCommands, skills } = yield* resolvePiDiscoveredCommands(
+    commandsData,
+    piSettings,
+    environment,
+    cwd,
+  );
   // Pi lists only models of providers it holds credentials for, including extension, virtual and
   // --api-key ones. Turns need only the provider's credentials, so uncatalogued model ids still run.
   const activeModel = recordField(stateData, "model");
@@ -209,9 +252,13 @@ export const discoverPiCommandsForCwd = Effect.fn("discoverPiCommandsForCwd")(
       launchArgs.args,
       cwd,
     );
-    // A failed read must not replace a previously usable workspace catalog with an empty one.
-    const commandsData = yield* connection.request({ type: "get_commands" });
-    const { slashCommands, skills } = parsePiDiscoveredCommands(commandsData);
+    const commandsData = yield* connection.request({ type: "get_commands" }).pipe(Effect.option);
+    const { slashCommands, skills } = yield* resolvePiDiscoveredCommands(
+      commandsData,
+      piSettings,
+      environment,
+      cwd,
+    );
     return { slashCommands: withPiBuiltinSlashCommands(slashCommands), skills };
   },
   Effect.scoped,

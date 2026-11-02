@@ -180,6 +180,8 @@ managed runtimes without a `PATH` entry.
 OMP activity uses the same conversation surfaces as the other native providers. TODO phases,
 subagents, commands, file operations, searches, browser work, and other harness tools appear as
 typed cards. Expand a grouped work summary to inspect each tool's arguments, result, and status.
+OMP skills appear in the composer skill picker. For OMP releases whose RPC mode does not expose
+its command catalog, T3 Code falls back to the local `omp skill list --json` inventory.
 
 T3 Code warns when a provider version has known compatibility problems with your
 release. Check **Settings → Providers** on that environment for the recommended

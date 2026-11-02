@@ -90,6 +90,43 @@ export function parsePiDiscoveredCommands(data: unknown): PiDiscoveredCommands {
   return { slashCommands, skills };
 }
 
+export function parseOmpSkillListJson(json: string): ReadonlyArray<ServerProviderSkill> {
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  const records = recordField(data, "skills");
+  if (!Array.isArray(records)) return [];
+
+  const seen = new Set<string>();
+  return records.flatMap((record) => {
+    const name = recordString(record, "name");
+    if (name === undefined || seen.has(name) || recordField(record, "hide") === true) return [];
+    seen.add(name);
+    const path = recordString(record, "filePath") ?? `omp:skill:${name}`;
+    const description = recordString(record, "description");
+    const source = recordString(record, "source");
+    const sourceScope = source?.slice(source.lastIndexOf(":") + 1);
+    const scope =
+      sourceScope === "user"
+        ? "user"
+        : sourceScope === "project" || sourceScope === "workspace"
+          ? "project"
+          : undefined;
+    return [
+      {
+        name,
+        path,
+        enabled: true,
+        ...(description === undefined ? {} : { description }),
+        ...(scope === undefined ? {} : { scope }),
+      },
+    ];
+  });
+}
+
 function recordField(input: unknown, key: string): unknown {
   return Predicate.isObject(input) ? input[key] : undefined;
 }
