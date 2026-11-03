@@ -19,6 +19,7 @@ import {
   checkPiProviderStatus,
   discoverPiCommandsForCwd,
   enrichPiSnapshot,
+  needsPiStatusRefresh,
 } from "./status.ts";
 import { makeManagedServerProvider } from "@t3tools/provider-core/server/managedProvider";
 import {
@@ -156,6 +157,7 @@ export const OmpDriver: ProviderDriver<OmpSettings, OmpDriverEnv, Path.Path> = {
       getSettings: snapshotSettings.getSettings,
       streamSettings: snapshotSettings.streamSettings,
       haveSettingsChanged: haveProviderSnapshotSettingsChanged,
+      refreshOnInterval: needsPiStatusRefresh,
       initialSnapshot: (settings) =>
         buildInitialPiProviderSnapshot(settings.provider).pipe(Effect.map(stampIdentity)),
       checkProvider,
