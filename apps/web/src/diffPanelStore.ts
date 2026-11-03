@@ -27,6 +27,9 @@ interface DiffPanelStoreState {
   branchBaseRefByThreadKey: Record<string, string | null>;
   /** A link that selected a commit before opening the closed pane; opening keeps that selection. */
   keepSelectionOnOpenThreadKey: string | null;
+  /** Nested repo the Diff panel shows for each project root; absent means the root repo itself. */
+  repositoryByRoot: Record<string, string>;
+  selectRepository: (root: string, repositoryPath: string | null) => void;
   selectGitScope: (ref: ScopedThreadRef, scope: "branch" | "unstaged") => void;
   selectBranchBaseRef: (ref: ScopedThreadRef, baseRef: string | null) => void;
   selectToolCall: (ref: ScopedThreadRef, target: ToolCallDiffTarget) => void;
@@ -58,6 +61,15 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       byThreadKey: {},
       branchBaseRefByThreadKey: {},
       keepSelectionOnOpenThreadKey: null,
+      repositoryByRoot: {},
+      selectRepository: (root, repositoryPath) =>
+        set((state) => {
+          if ((state.repositoryByRoot[root] ?? null) === repositoryPath) return state;
+          const { [root]: _previous, ...rest } = state.repositoryByRoot;
+          return {
+            repositoryByRoot: repositoryPath === null ? rest : { ...rest, [root]: repositoryPath },
+          };
+        }),
       selectGitScope: (ref, scope) =>
         set((state) => {
           const threadKey = scopedThreadKey(ref);
@@ -175,6 +187,7 @@ export const useDiffPanelStore = create<DiffPanelStoreState>()(
       partialize: (state) => ({
         byThreadKey: state.byThreadKey,
         branchBaseRefByThreadKey: state.branchBaseRefByThreadKey,
+        repositoryByRoot: state.repositoryByRoot,
       }),
     },
   ),

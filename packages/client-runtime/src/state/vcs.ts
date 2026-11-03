@@ -17,6 +17,7 @@ import { Atom, AtomRegistry } from "effect/reactivity";
 
 import {
   createEnvironmentRpcCommand,
+  createEnvironmentRpcQueryAtomFamily,
   createEnvironmentRpcSubscriptionAtomFamily,
   createEnvironmentSubscriptionAtomFamily,
 } from "./runtime.ts";
@@ -281,6 +282,12 @@ export function createVcsEnvironmentAtoms<R, E>(
     readRefs: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:vcs:read-refs",
       tag: WS_METHODS.vcsListRefs,
+    }),
+    // Repos one folder down, such as app repos a monorepo root ignores; the Diff panel picks among them.
+    nestedRepositories: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:vcs:nested-repositories",
+      tag: WS_METHODS.vcsListNestedRepositories,
+      staleTimeMs: 30_000,
     }),
     status: createEnvironmentSubscriptionAtomFamily(runtime, {
       label: "environment-data:vcs:status",

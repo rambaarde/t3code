@@ -118,6 +118,23 @@ export const VcsStatusSubscriptionInput = Schema.Struct({
 });
 export type VcsStatusSubscriptionInput = typeof VcsStatusSubscriptionInput.Type;
 
+export const VcsListNestedRepositoriesInput = Schema.Struct({
+  cwd: TrimmedNonEmptyStringSchema,
+});
+export type VcsListNestedRepositoriesInput = typeof VcsListNestedRepositoriesInput.Type;
+
+/** A git repository in a direct child folder of `cwd`, such as an app repo inside a monorepo root. */
+export const VcsNestedRepository = Schema.Struct({
+  name: TrimmedNonEmptyStringSchema,
+  path: TrimmedNonEmptyStringSchema,
+});
+export type VcsNestedRepository = typeof VcsNestedRepository.Type;
+
+export const VcsListNestedRepositoriesResult = Schema.Struct({
+  repositories: Schema.Array(VcsNestedRepository),
+});
+export type VcsListNestedRepositoriesResult = typeof VcsListNestedRepositoriesResult.Type;
+
 export const VcsPullInput = Schema.Struct({
   cwd: TrimmedNonEmptyStringSchema,
 });

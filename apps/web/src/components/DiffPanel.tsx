@@ -13,6 +13,7 @@ import {
   ChevronDownIcon,
   Columns2Icon,
   FlaskConicalOffIcon,
+  FolderGitIcon,
   FolderTreeIcon,
   PilcrowIcon,
   Rows3Icon,
@@ -246,10 +247,41 @@ export default function DiffPanel({
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const activeRepositoryRoot = activeThread?.worktreePath
+  const projectCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  // App repos one folder down (a monorepo root that ignores them) get their own Diff view.
+  const nestedRepositoriesQuery = useEnvironmentQuery(
+    activeThread && projectCwd && canReadFiles
+      ? vcsEnvironment.nestedRepositories({
+          environmentId: activeThread.environmentId,
+          input: { cwd: projectCwd },
+        })
+      : null,
+  );
+  const nestedRepositories = nestedRepositoriesQuery.data?.repositories ?? [];
+  const rememberedRepositoryPath = useDiffPanelStore((state) =>
+    projectCwd ? (state.repositoryByRoot[projectCwd] ?? null) : null,
+  );
+  const selectedNestedRepository =
+    nestedRepositories.find((repository) => repository.path === rememberedRepositoryPath) ?? null;
+  const activeCwd = selectedNestedRepository?.path ?? projectCwd;
+  const activeRepositoryRoot = selectedNestedRepository
+    ? selectedNestedRepository.path
+    : activeThread?.worktreePath
+      ? undefined
+      : activeProject?.repositoryIdentity?.rootPath;
+  // Commit links point at the root repo's host; a nested repo's commits are not there.
+  const commitLinkIdentity = selectedNestedRepository
     ? undefined
-    : activeProject?.repositoryIdentity?.rootPath;
+    : activeProject?.repositoryIdentity;
+  const rootRepositoryName = projectCwd?.split(/[\\/]/u).findLast(Boolean) ?? "Project";
+  const selectRepository = (repositoryPath: string | null) => {
+    if (!projectCwd || !routeThreadRef) return;
+    const store = useDiffPanelStore.getState();
+    store.selectRepository(projectCwd, repositoryPath);
+    // A remembered base branch belongs to the previous repo; each repo picks its own default.
+    store.selectBranchBaseRef(routeThreadRef, null);
+    if (diffSelection.kind === "unstaged") store.selectGitScope(routeThreadRef, "unstaged");
+  };
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
   );
@@ -432,9 +464,7 @@ export default function DiffPanel({
       : selectedGitScopeLabel;
   const headerCommitSha = selectedRunId === null ? selectedCommitSha : null;
   const selectedCommitUrl =
-    headerCommitSha !== null
-      ? projectCommitUrl(activeProject?.repositoryIdentity, headerCommitSha)
-      : null;
+    headerCommitSha !== null ? projectCommitUrl(commitLinkIdentity, headerCommitSha) : null;
   const openLink = useOpenLink(routeThreadRef);
   // A SHA link goes to the code host; it must not route back into this pane's commit selection.
   const openCommitUrl = (event: MouseEvent<HTMLElement>, url: string) => {
@@ -789,6 +819,36 @@ export default function DiffPanel({
   const headerRow = (
     <>
       <div className="@container/diff-refs flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+        {isGitSelection && projectCwd && nestedRepositories.length > 0 ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={<Button size="xs" variant="ghost" />}
+              className="min-w-0 max-w-40 shrink"
+              aria-label={`Repository: ${selectedNestedRepository?.name ?? rootRepositoryName}`}
+            >
+              <FolderGitIcon className="size-3.5 shrink-0 opacity-70" />
+              <span className="truncate">
+                {selectedNestedRepository?.name ?? rootRepositoryName}
+              </span>
+              <ChevronDownIcon className="size-3.5 shrink-0 opacity-70" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuRadioGroup
+                value={selectedNestedRepository?.path ?? projectCwd}
+                onValueChange={(value) => selectRepository(value === projectCwd ? null : value)}
+              >
+                <DropdownMenuRadioItem value={projectCwd} closeOnClick>
+                  <span>{rootRepositoryName}</span>
+                </DropdownMenuRadioItem>
+                {nestedRepositories.map((repository) => (
+                  <DropdownMenuRadioItem key={repository.path} value={repository.path} closeOnClick>
+                    <span>{repository.name}</span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
             render={<Button size="xs" variant="secondary" />}
@@ -874,10 +934,7 @@ export default function DiffPanel({
                   onValueChange={selectScopeValue}
                 >
                   {branchCommits?.commits.map((commit) => {
-                    const commitUrl = projectCommitUrl(
-                      activeProject?.repositoryIdentity,
-                      commit.sha,
-                    );
+                    const commitUrl = projectCommitUrl(commitLinkIdentity, commit.sha);
                     return (
                       <div
                         key={commit.sha}
