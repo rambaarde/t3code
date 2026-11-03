@@ -116,7 +116,8 @@ asar="$built/Contents/Resources/app.asar"
 IFS=',' read -r -a markers <<<"$REQUIRE"
 for marker in "${markers[@]}"; do
   [[ -z "$marker" ]] && continue
-  strings -n 8 "$asar" | grep -q -- "$marker" || fail "built app.asar lacks \"$marker\""
+  # Not `grep -q`: it exits at the first match, and pipefail then reports strings' SIGPIPE.
+  strings -n 8 "$asar" | grep -c -- "$marker" >/dev/null || fail "built app.asar lacks \"$marker\""
 done
 echo "install-omp-desktop: build checks passed ($built)"
 [[ "$BUILD_ONLY" == 1 ]] && exit 0
