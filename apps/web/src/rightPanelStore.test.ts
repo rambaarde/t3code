@@ -1311,13 +1311,60 @@ describe("rightPanelStore", () => {
           isOpen: true,
           activeSurfaceId: null,
           surfaces: [{ id: "diff", kind: "diff" }],
-          split: { otherSurfaceId: "gone", focusSecond: true, orientation: "vertical" },
+          split: {
+            otherSurfaceId: "gone",
+            focusSecond: true,
+            orientation: "vertical",
+            ratio: 0.99,
+          },
         },
       },
     });
     expect(migrated.byThreadKey["env-1:thread-A"]).toMatchObject({
       activeSurfaceId: null,
-      split: { otherSurfaceId: null, focusSecond: true, orientation: "vertical" },
+      split: { otherSurfaceId: null, focusSecond: true, orientation: "vertical", ratio: 0.85 },
     });
+  });
+
+  it("moves a tab into the other pane, swapping when it is the focused pane's own tab", () => {
+    const store = useRightPanelStore.getState();
+    const state = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    store.open(refA, "diff");
+    store.open(refA, "files");
+    store.openTerminal(refA, "term-1");
+
+    // Not split: splitting keeps focus on the current tab and shows the moved one beside it.
+    store.moveToOtherPane(refA, "diff");
+    expect(state()).toMatchObject({
+      activeSurfaceId: "terminal:term-1",
+      split: { otherSurfaceId: "diff", focusSecond: false },
+    });
+
+    store.moveToOtherPane(refA, "files");
+    expect(state()).toMatchObject({
+      activeSurfaceId: "terminal:term-1",
+      split: { otherSurfaceId: "files" },
+    });
+
+    store.moveToOtherPane(refA, "terminal:term-1");
+    expect(state()).toMatchObject({
+      activeSurfaceId: "files",
+      split: { otherSurfaceId: "terminal:term-1", focusSecond: false },
+    });
+  });
+
+  it("clamps the dragged split ratio so neither pane disappears", () => {
+    const store = useRightPanelStore.getState();
+    store.open(refA, "diff");
+    store.splitPanel(refA);
+    store.setSplitRatio(refA, 0.02);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).split?.ratio,
+    ).toBe(0.15);
+    store.setSplitRatio(refA, 0.6234);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA).split?.ratio,
+    ).toBe(0.623);
   });
 });

@@ -3280,6 +3280,19 @@ export default function ChatView(props: ChatViewProps) {
       if (name) diffRepositoryNames.set(surface.id, name);
     }
   }
+  // Version control follows the nested repo of the Diff tab on screen; otherwise the thread's repo.
+  const visibleDiffSurfaceId =
+    rightPanelOpen && renderedRightPanelSurface?.kind === "diff"
+      ? renderedRightPanelSurface.id
+      : null;
+  const diffRepositoryCwd =
+    visibleDiffSurfaceId !== null && activeWorkspaceRoot
+      ? (diffRepositoryByRoot[
+          visibleDiffSurfaceId === "diff"
+            ? activeWorkspaceRoot
+            : `${activeWorkspaceRoot}#${visibleDiffSurfaceId}`
+        ] ?? null)
+      : null;
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
@@ -3895,6 +3908,7 @@ export default function ChatView(props: ChatViewProps) {
                     )
                   }
                   gitCwd={gitCwd}
+                  diffRepositoryCwd={diffRepositoryCwd}
                   isGitRepo={isGitRepo}
                   envLocked={envLocked}
                   availableEnvironments={logicalProjectEnvironments}
@@ -4007,6 +4021,9 @@ export default function ChatView(props: ChatViewProps) {
           onCloseSurfacesToRight={closeRightPanelSurfacesToRightStable}
           onCloseAllSurfaces={closeAllRightPanelSurfacesStable}
           onMoveSurface={moveRightPanelSurfaceStable}
+          onMoveToOtherPane={(surfaceId) =>
+            useRightPanelStore.getState().moveToOtherPane(activeThreadRef, surfaceId)
+          }
           onCopyFilePath={copyRightPanelFilePathStable}
           onAddBrowser={() => createBrowserSurface()}
           onAddBrowserInProfile={createBrowserSurfaceStable}
@@ -4033,6 +4050,9 @@ export default function ChatView(props: ChatViewProps) {
                   orientation: rightPanelSplit.orientation,
                   focusSecond: rightPanelSplit.focusSecond,
                   otherSurfaceId: rightPanelSplit.otherSurfaceId,
+                  ratio: rightPanelSplit.ratio ?? 0.5,
+                  onRatioChange: (ratio: number) =>
+                    useRightPanelStore.getState().setSplitRatio(activeThreadRef, ratio),
                   otherContent: otherPaneSurface ? renderRightPanelSurface(otherPaneSurface) : null,
                   onFocusOther: () => useRightPanelStore.getState().focusOtherPane(activeThreadRef),
                   onToggleOrientation: () =>

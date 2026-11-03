@@ -80,3 +80,18 @@ it("maps an OMP web search to its query and readable sources", () => {
     patterns: ["running"],
   });
 });
+
+it("keeps a search answer but drops the numbered source list it repeats", () => {
+  assert.deepStrictEqual(
+    normalizeOmpWebSearch(
+      { query: "rls" },
+      { details: { response: { sources: [{ title: "RLS", url: "https://supabase.com/rls" }] } } },
+      "Enable RLS on every exposed table.\n\n[1] RLS\n    https://supabase.com/rls",
+    ).summary,
+    "Enable RLS on every exposed table.",
+  );
+  assert.strictEqual(
+    normalizeOmpWebSearch({ query: "x" }, {}, "[1] Only a list\n    https://a.example").summary,
+    undefined,
+  );
+});

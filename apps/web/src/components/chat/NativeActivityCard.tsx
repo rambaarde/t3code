@@ -148,6 +148,17 @@ export function NativeActivityCard({
           status={item.status}
         >
           <ActivityQuery label="Query" value={item.patterns?.join(", ") || "Searching the web"} />
+          {item.summary ? (
+            <div className="mt-2 max-h-48 overflow-auto rounded-md bg-muted/25 px-2.5 py-2 text-xs leading-relaxed text-foreground/85">
+              <ChatMarkdown
+                text={item.summary}
+                cwd={ctx.markdownCwd}
+                environmentId={ctx.activeThreadEnvironmentId}
+                threadRef={ctx.threadRef ?? undefined}
+                isStreaming={item.status === "running"}
+              />
+            </div>
+          ) : null}
           {item.results?.length ? (
             <ul className="mt-1 space-y-1.5">
               {item.results.slice(0, 8).map((result, index) => {
@@ -185,7 +196,7 @@ export function NativeActivityCard({
                 );
               })}
             </ul>
-          ) : (
+          ) : item.summary ? null : (
             <ActivityEmptyState status={item.status} activeLabel="Searching sources…" />
           )}
           {details}

@@ -1673,6 +1673,8 @@ export const OrchestrationV2TurnItem = Schema.Union([
     type: Schema.Literal("web_search"),
     patterns: Schema.optional(Schema.Array(Schema.String)),
     results: Schema.optional(Schema.Array(OrchestrationV2WebSearchResult)),
+    /** The answer text a search provider returned alongside or instead of sources. */
+    summary: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemBaseFields,
@@ -2502,6 +2504,7 @@ export const OrchestrationV2TurnItemJson = Schema.Union([
     type: Schema.Literal("web_search"),
     patterns: Schema.optional(Schema.Array(Schema.String)),
     results: Schema.optional(Schema.Array(OrchestrationV2WebSearchResult)),
+    summary: Schema.optional(Schema.String),
   }),
   Schema.Struct({
     ...OrchestrationV2TurnItemJsonBaseFields,

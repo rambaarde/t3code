@@ -61,6 +61,8 @@ interface ThreadDetailsPanelProps extends Pick<
   showOpenInPicker: boolean;
   openInShortcutEnabled: boolean;
   gitCwd: string | null;
+  /** Nested repo the open Diff tab shows; commit, push, and changes act on it instead of `gitCwd`. */
+  diffRepositoryCwd?: string | null;
   isGitRepo: boolean;
   envLocked: boolean;
   availableEnvironments: readonly EnvironmentOption[];
@@ -228,7 +230,8 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
                         compact={density !== "full"}
                         showActions={visible.gitActions}
                         showChanges={visible.changes}
-                        gitCwd={props.gitCwd}
+                        gitCwd={props.diffRepositoryCwd ?? props.gitCwd}
+                        syncThreadBranch={!props.diffRepositoryCwd}
                         activeThreadRef={activeThreadRef}
                         {...(props.draftId ? { draftId: props.draftId } : {})}
                         {...(props.onOpenChanges ? { onOpenChanges: props.onOpenChanges } : {})}

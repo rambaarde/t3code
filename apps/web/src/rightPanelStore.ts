@@ -92,6 +92,16 @@ const isPullRequestsPanelKey = (threadKey: string) => threadKey.endsWith(":pull-
 
 export type RightPanelSplitOrientation = "horizontal" | "vertical";
 
+/** Neither pane can be dragged below 15% of the panel. */
+export const RIGHT_PANEL_SPLIT_RATIO_RANGE = [0.15, 0.85] as const;
+
+/** Clamps a first-pane share into range and rounds it so tiny drags do not churn storage. */
+export function clampSplitRatio(ratio: number): number {
+  const [min, max] = RIGHT_PANEL_SPLIT_RATIO_RANGE;
+  if (!Number.isFinite(ratio)) return 0.5;
+  return Math.round(Math.min(max, Math.max(min, ratio)) * 1000) / 1000;
+}
+
 /**
  * Two panes share the tab strip. `activeSurfaceId` is always the focused pane's surface, so
  * every existing action targets the focused pane; the other pane shows `otherSurfaceId`.
@@ -103,6 +113,8 @@ export interface RightPanelSplit {
   focusSecond: boolean;
   /** "horizontal" puts the panes side by side; "vertical" stacks them. */
   orientation: RightPanelSplitOrientation;
+  /** Share of the first pane (left, or top when stacked); absent means half. */
+  ratio?: number;
 }
 
 export interface ThreadRightPanelState {
@@ -205,7 +217,11 @@ interface RightPanelStoreState {
   /** Cmd+D in a split: closes the focused pane; the other pane takes the whole panel. */
   closeFocusedPane: (ref: ScopedThreadRef) => void;
   focusOtherPane: (ref: ScopedThreadRef) => void;
+  /** Shows a tab in the other pane, splitting the panel first when it is not split. */
+  moveToOtherPane: (ref: ScopedThreadRef, surfaceId: string) => void;
   setSplitOrientation: (ref: ScopedThreadRef, orientation: RightPanelSplitOrientation) => void;
+  /** Sets the first pane's share from the divider drag, clamped to RIGHT_PANEL_SPLIT_RATIO_RANGE. */
+  setSplitRatio: (ref: ScopedThreadRef, ratio: number) => void;
   close: (ref: ScopedThreadRef) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
@@ -533,10 +549,12 @@ function migratePersistedSplit(
     surfaces.some((surface) => surface.id === split.otherSurfaceId)
       ? split.otherSurfaceId
       : null;
+  const ratio = typeof split.ratio === "number" ? clampSplitRatio(split.ratio) : undefined;
   return {
     otherSurfaceId,
     focusSecond: split.focusSecond === true,
     orientation: split.orientation,
+    ...(ratio === undefined || ratio === 0.5 ? {} : { ratio }),
   };
 }
 
@@ -1213,6 +1231,37 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             };
           }),
         ),
+      moveToOtherPane: (ref, surfaceId) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            if (!current.surfaces.some((surface) => surface.id === surfaceId)) return current;
+            const { split } = current;
+            if (split === undefined) {
+              // Not split yet: split, with the tab in the new pane and focus left where it was.
+              return {
+                ...current,
+                isOpen: true,
+                activeSurfaceId:
+                  current.activeSurfaceId === surfaceId ? null : current.activeSurfaceId,
+                split: {
+                  otherSurfaceId: surfaceId,
+                  focusSecond: false,
+                  orientation: state.preferredSplitOrientation,
+                },
+              };
+            }
+            if (split.otherSurfaceId === surfaceId) return current;
+            return {
+              ...current,
+              // Moving the focused pane's own tab swaps the two panes' tabs.
+              activeSurfaceId:
+                current.activeSurfaceId === surfaceId
+                  ? split.otherSurfaceId
+                  : current.activeSurfaceId,
+              split: { ...split, otherSurfaceId: surfaceId },
+            };
+          }),
+        ),
       setSplitOrientation: (ref, orientation) =>
         set((state) => ({
           preferredSplitOrientation: orientation,
@@ -1222,6 +1271,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               : { ...current, split: { ...current.split, orientation } },
           ),
         })),
+      setSplitRatio: (ref, ratio) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            current.split === undefined || current.split.ratio === clampSplitRatio(ratio)
+              ? current
+              : { ...current, split: { ...current.split, ratio: clampSplitRatio(ratio) } },
+          ),
+        ),
       close: (ref) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>

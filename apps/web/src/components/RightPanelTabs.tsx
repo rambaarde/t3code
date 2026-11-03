@@ -53,6 +53,7 @@ import { Volume2, VolumeOff } from "lucide";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactElement,
   type ReactNode,
   useEffect,
@@ -63,7 +64,12 @@ import {
 
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
-import type { RightPanelSplitOrientation, RightPanelSurface } from "~/rightPanelStore";
+import {
+  clampSplitRatio,
+  RIGHT_PANEL_SPLIT_RATIO_RANGE,
+  type RightPanelSplitOrientation,
+  type RightPanelSurface,
+} from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
 import { readLocalApi } from "~/localApi";
@@ -133,6 +139,8 @@ export interface RightPanelTabsProps {
   onCloseSurfacesToRight: (surface: RightPanelSurface) => void;
   onCloseAllSurfaces: () => void;
   onMoveSurface?: (surfaceId: string, toIndex: number) => void;
+  /** Shows a tab in the other pane (splitting first); from the tab menu or a drop on that pane. */
+  onMoveToOtherPane?: (surfaceId: string) => void;
   onCopyFilePath: (relativePath: string) => void;
   onAddBrowser: () => void;
   /** Keep separate from the DOM click handler so a MouseEvent cannot become a profile id. */
@@ -167,6 +175,10 @@ export interface RightPanelTabsSplit {
   readonly orientation: RightPanelSplitOrientation;
   readonly focusSecond: boolean;
   readonly otherSurfaceId: string | null;
+  /** Share of the first pane (left, or top when stacked). */
+  readonly ratio: number;
+  /** Saves the share after a divider drag ends. */
+  readonly onRatioChange: (ratio: number) => void;
   /** The unfocused pane's content; null shows an empty pane that takes focus on click. */
   readonly otherContent: ReactNode;
   readonly onFocusOther: () => void;
@@ -230,7 +242,8 @@ type TabContextMenuAction =
   | "close"
   | "close-others"
   | "close-to-right"
-  | "close-all";
+  | "close-all"
+  | "move-to-other-pane";
 
 const TAB_SCROLL_EDGE_TOLERANCE = 1;
 const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor];
@@ -843,12 +856,32 @@ function PullRequestSurfaceIcon({
 function SortableTabList(props: {
   surfaces: readonly RightPanelSurface[];
   onMove: ((surfaceId: string, toIndex: number) => void) | undefined;
+  onDropOnOtherPane: ((surfaceId: string) => void) | undefined;
   children: ReactNode;
 }) {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
   const surfaceIds = props.surfaces.map((surface) => surface.id);
-  const { onMove, surfaces } = props;
+  const { onMove, onDropOnOtherPane, surfaces } = props;
+  // dnd-kit reports the axis-restricted delta, so the real pointer is tracked to detect a drop
+  // on the other split pane below the tab strip.
+  const pointerRef = useRef<{ x: number; y: number } | null>(null);
+  const trackPointer = useStableCallback((event: PointerEvent) => {
+    pointerRef.current = { x: event.clientX, y: event.clientY };
+  });
+  const stopTracking = () => window.removeEventListener("pointermove", trackPointer);
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- removes the window pointer listener if the tab strip unmounts mid-drag
+  useEffect(() => () => window.removeEventListener("pointermove", trackPointer), [trackPointer]);
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    stopTracking();
+    const pointer = pointerRef.current;
+    pointerRef.current = null;
+    const dropPane = pointer
+      ? document.elementFromPoint(pointer.x, pointer.y)?.closest("[data-right-panel-pane]")
+      : null;
+    if (dropPane?.getAttribute("data-right-panel-pane") === "other" && onDropOnOtherPane) {
+      onDropOnOtherPane(String(active.id));
+      return;
+    }
     if (!over || active.id === over.id) return;
     const toIndex = surfaces.findIndex((surface) => surface.id === over.id);
     if (toIndex >= 0) onMove?.(String(active.id), toIndex);
@@ -858,6 +891,11 @@ function SortableTabList(props: {
       sensors={sensors}
       collisionDetection={closestCenter}
       modifiers={TAB_DRAG_MODIFIERS}
+      onDragStart={() => {
+        pointerRef.current = null;
+        window.addEventListener("pointermove", trackPointer);
+      }}
+      onDragCancel={stopTracking}
       onDragEnd={handleDragEnd}
     >
       <SortableContext items={surfaceIds} strategy={horizontalListSortingStrategy}>
@@ -1219,6 +1257,13 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         }),
       });
     }
+    if (props.onMoveToOtherPane) {
+      items.push({
+        id: "move-to-other-pane",
+        label: props.split ? "Move to other pane" : "Open in split pane",
+        disabled: surface.id === props.split?.otherSurfaceId,
+      });
+    }
     items.push(
       { id: "close", label: "Close" },
       {
@@ -1269,6 +1314,9 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         break;
       case "close-all":
         props.onCloseAllSurfaces();
+        break;
+      case "move-to-other-pane":
+        props.onMoveToOtherPane?.(surface.id);
         break;
       case null:
         break;
@@ -1394,7 +1442,11 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           data-right-panel-tab-list
         >
           <div className="flex h-full w-max min-w-full items-center gap-1">
-            <SortableTabList surfaces={props.surfaces} onMove={props.onMoveSurface}>
+            <SortableTabList
+              surfaces={props.surfaces}
+              onMove={props.onMoveSurface}
+              onDropOnOtherPane={props.split ? props.onMoveToOtherPane : undefined}
+            >
               {props.surfaces.map((surface) => {
                 const previewTabId = previewTabIdOf(surface, props.previewSessions);
                 const favicon = previewFaviconOf(
@@ -1629,6 +1681,19 @@ function RightPanelSplitPanes(props: {
 }) {
   const { split } = props;
   const stacked = split.orientation === "vertical";
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  // The drag updates local state each frame and saves once on release, so storage is not hit per move.
+  const [dragRatio, setDragRatio] = useState<number | null>(null);
+  const ratio = dragRatio ?? split.ratio;
+  const ratioFromPointer = (event: ReactPointerEvent) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return split.ratio;
+    return clampSplitRatio(
+      stacked
+        ? (event.clientY - rect.top) / Math.max(1, rect.height)
+        : (event.clientX - rect.left) / Math.max(1, rect.width),
+    );
+  };
   const panes = [
     {
       key: props.focusedKey,
@@ -1648,27 +1713,75 @@ function RightPanelSplitPanes(props: {
     },
   ];
   return (
-    <div className={cn("flex min-h-0 flex-1", stacked ? "flex-col" : "flex-row")}>
+    <div
+      ref={containerRef}
+      className={cn("flex min-h-0 flex-1", stacked ? "flex-col" : "flex-row")}
+    >
       {panes.map((pane) => (
         <div
           key={pane.key}
           data-right-panel-pane={pane.focused ? "focused" : "other"}
-          style={{ order: pane.first ? 0 : 2 }}
-          className={cn(
-            "flex min-h-0 min-w-0 flex-1 basis-0 flex-col",
-            !pane.focused && "opacity-90",
-          )}
+          style={{ order: pane.first ? 0 : 2, flexGrow: pane.first ? ratio : 1 - ratio }}
+          className={cn("flex min-h-0 min-w-0 basis-0 flex-col", !pane.focused && "opacity-90")}
           // Capture runs before the pane's own click, so that click acts on the focused pane.
           onPointerDownCapture={pane.focused ? undefined : split.onFocusOther}
+          // Panes ignore the pointer while dragging, so a browser or terminal pane cannot swallow it.
+          {...(dragRatio !== null ? { inert: true } : {})}
         >
           {pane.content}
         </div>
       ))}
       <div
-        aria-hidden
+        role="separator"
+        aria-orientation={stacked ? "horizontal" : "vertical"}
+        aria-label="Resize panes"
+        aria-valuemin={RIGHT_PANEL_SPLIT_RATIO_RANGE[0] * 100}
+        aria-valuemax={RIGHT_PANEL_SPLIT_RATIO_RANGE[1] * 100}
+        aria-valuenow={Math.round(ratio * 100)}
+        tabIndex={0}
         style={{ order: 1 }}
-        className={cn("shrink-0 bg-border", stacked ? "h-px w-full" : "h-full w-px")}
-      />
+        className={cn(
+          "group/divider relative z-10 shrink-0 touch-none bg-border outline-none",
+          stacked ? "h-px w-full cursor-row-resize" : "h-full w-px cursor-col-resize",
+        )}
+        onPointerDown={(event) => {
+          if (event.button !== 0) return;
+          event.preventDefault();
+          event.currentTarget.setPointerCapture(event.pointerId);
+          setDragRatio(ratioFromPointer(event));
+        }}
+        onPointerMove={(event) => {
+          if (dragRatio !== null) setDragRatio(ratioFromPointer(event));
+        }}
+        onPointerUp={(event) => {
+          if (dragRatio === null) return;
+          split.onRatioChange(ratioFromPointer(event));
+          setDragRatio(null);
+        }}
+        onPointerCancel={() => setDragRatio(null)}
+        onDoubleClick={() => split.onRatioChange(0.5)}
+        onKeyDown={(event) => {
+          const step =
+            event.key === (stacked ? "ArrowUp" : "ArrowLeft")
+              ? -0.05
+              : event.key === (stacked ? "ArrowDown" : "ArrowRight")
+                ? 0.05
+                : 0;
+          if (step === 0) return;
+          event.preventDefault();
+          split.onRatioChange(clampSplitRatio(split.ratio + step));
+        }}
+      >
+        {/* A wider invisible grab area around the 1px line. */}
+        <span
+          aria-hidden
+          className={cn(
+            "absolute group-hover/divider:bg-primary/40 group-focus-visible/divider:bg-primary/60",
+            stacked ? "inset-x-0 -inset-y-1" : "inset-y-0 -inset-x-1",
+            dragRatio !== null && "bg-primary/60",
+          )}
+        />
+      </div>
     </div>
   );
 }

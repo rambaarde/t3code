@@ -120,6 +120,11 @@ interface GitActionsControlProps {
   showActions?: boolean;
   showChanges?: boolean;
   onOpenChanges?: () => void;
+  /**
+   * Whether branch changes in `gitCwd` update the thread's branch. False for a nested repo picked
+   * in the Diff panel: its branch belongs to that repo, not to the thread.
+   */
+  syncThreadBranch?: boolean;
 }
 
 interface PendingDefaultBranchAction {
@@ -931,6 +936,7 @@ export default function GitActionsControl({
   showActions = true,
   showChanges = true,
   onOpenChanges,
+  syncThreadBranch = true,
 }: GitActionsControlProps) {
   const panelAnchorRef = useRef<HTMLDivElement | null>(null);
   const updateThreadMetadata = useAtomCommand(
@@ -981,7 +987,7 @@ export default function GitActionsControl({
     inlineSuccess?.scopeKey === successScopeKey && !inlineSuccessExpired ? inlineSuccess : null;
 
   const persistThreadBranchSync = (branch: string | null, manualSelection = false) => {
-    if (!activeThreadRef) {
+    if (!activeThreadRef || !syncThreadBranch) {
       return;
     }
 

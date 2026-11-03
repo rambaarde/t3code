@@ -357,6 +357,8 @@ interface ActivePiTurn {
   messageOrdinal: number;
   readonly streamItems: Map<string, PiStreamItemState>;
   readonly toolArgs: Map<string, unknown>;
+  /** One-line intents (`i`) from the assistant's tool calls; tool events omit them. */
+  readonly toolIntents: Map<string, string>;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
   interrupted: boolean;
   nativeAborted: boolean;
@@ -765,10 +767,18 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         startedAt,
         updatedAt,
       });
+      // ponytail: in-memory only; after a server restart a carried-over list shows once more.
+      const lastTodoSignatureByThread = new Map<string, string>();
       const emitTodoSnapshot = Effect.fnUntraced(function* (turn: ActivePiTurn, data: unknown) {
         const steps = normalizeOmpTodoPhases(data);
         // A turn that never wrote todos has nothing to show; an empty row reads "Tasks 0/0".
         if (steps.length === 0 && turn.planId === null) return;
+        const signature = steps.map((step) => `${step.status}\u0000${step.text}`).join("\u0001");
+        const threadKey = String(turn.turnInput.threadId);
+        // OMP keeps todos for the session, so a later turn reports the same list again.
+        // Show it only when this turn changed it.
+        if (turn.planId === null && lastTodoSignatureByThread.get(threadKey) === signature) return;
+        lastTodoSignatureByThread.set(threadKey, signature);
         if (turn.planId === null) {
           turn.planId = yield* idAllocator.allocate.plan({
             threadId: turn.turnInput.threadId,
@@ -1082,7 +1092,11 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
           completedAt: completed ? emittedAt : null,
         } as const;
         // OMP tools carry a one-line intent ("Reading model role settings"); the TUI shows it per call.
-        const intent = (recordString(event, "intent") ?? recordString(args, "i"))?.trim();
+        const intent = (
+          recordString(event, "intent") ??
+          recordString(args, "i") ??
+          turn.toolIntents.get(toolCallId)
+        )?.trim();
         const title = intent !== undefined && intent.length > 0 ? intent : toolName;
         if (toolName === "bash" || toolName === "powershell") {
           const exitCode =
@@ -1126,7 +1140,7 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         }
         // One item keeps one type across start/update/end, so search stays a web_search card throughout.
         if (toolName === "web_search") {
-          const search = normalizeOmpWebSearch(args, resultRecord);
+          const search = normalizeOmpWebSearch(args, resultRecord, outputText);
           yield* emit({
             type: "turn_item.updated",
             driver: OMP_PROVIDER,
@@ -1926,6 +1940,16 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
             const message = event["message"];
             if (recordString(message, "role") !== "assistant") return;
             yield* completeOpenStreamItems(turn);
+            // OMP strips the `i` intent from tool args before tool events, so read it here.
+            const content = recordField(message, "content");
+            if (Array.isArray(content)) {
+              for (const block of content) {
+                if (recordString(block, "type") !== "toolCall") continue;
+                const id = recordString(block, "id");
+                const intent = recordString(recordField(block, "arguments"), "i")?.trim();
+                if (id !== undefined && intent) turn.toolIntents.set(id, intent);
+              }
+            }
             if (recordString(message, "stopReason") === "error" && turn.failure === null) {
               turn.failure = makeProviderFailure({
                 message: recordString(message, "errorMessage") ?? "Pi reported a model error.",
@@ -2663,6 +2687,7 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
               messageOrdinal: 0,
               streamItems: new Map(),
               toolArgs: new Map(),
+              toolIntents: new Map(),
               toolStartedAt: new Map(),
               interrupted: false,
               nativeAborted: false,

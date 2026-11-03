@@ -40,12 +40,23 @@ export type OmpWebSearch = {
     readonly url?: string;
     readonly snippet?: string;
   }>;
+  readonly summary?: string;
 };
 
-/** OMP's web_search tool: `args.query`, and `result.details.response.sources` once it finishes. */
-export function normalizeOmpWebSearch(args: unknown, result: unknown): OmpWebSearch {
+const WEB_SEARCH_SUMMARY_MAX_LENGTH = 2_000;
+
+/**
+ * OMP's web_search tool: `args.query`, `result.details.response.sources`, and an answer either
+ * in `details.response.answer` or as the tool text above its numbered source list.
+ */
+export function normalizeOmpWebSearch(
+  args: unknown,
+  result: unknown,
+  outputText = "",
+): OmpWebSearch {
   const query = recordString(args, "query")?.trim();
-  const sources = recordField(recordField(recordField(result, "details"), "response"), "sources");
+  const response = recordField(recordField(result, "details"), "response");
+  const sources = recordField(response, "sources");
   const results = Array.isArray(sources)
     ? sources.flatMap((source) => {
         const url = recordString(source, "url")?.trim();
@@ -57,9 +68,22 @@ export function normalizeOmpWebSearch(args: unknown, result: unknown): OmpWebSea
         ];
       })
     : [];
+  // The numbered "[1] title / url" lines repeat the sources; what remains is the answer.
+  const answer = (
+    recordString(response, "answer") ??
+    outputText
+      .split("\n")
+      .filter((line) => !/^\s*\[\d+\]/u.test(line) && !/^\s*https?:\/\//u.test(line))
+      .join("\n")
+  ).trim();
+  const summary =
+    answer.length > WEB_SEARCH_SUMMARY_MAX_LENGTH
+      ? `${answer.slice(0, WEB_SEARCH_SUMMARY_MAX_LENGTH).trimEnd()}…`
+      : answer;
   return {
     ...(query ? { patterns: [query] } : {}),
     ...(results.length > 0 ? { results } : {}),
+    ...(summary ? { summary } : {}),
   };
 }
 
