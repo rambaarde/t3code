@@ -578,6 +578,15 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   });
 });
 
+/**
+ * Decides whether the periodic provider check must run again. Each check
+ * starts an OMP process, so stop once OMP is ready and authenticated. Until
+ * then, keep checking: a failed or timed-out discovery, a missing login, or an
+ * install that is not finished can recover without a manual refresh.
+ */
+export const needsPiStatusRefresh = (snapshot: Pick<ServerProvider, "status" | "auth">) =>
+  snapshot.status !== "ready" || snapshot.auth.status !== "authenticated";
+
 export const enrichPiSnapshot = (input: {
   readonly snapshot: ServerProvider;
   readonly maintenanceCapabilities: ProviderMaintenanceCapabilities;

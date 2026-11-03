@@ -6,7 +6,7 @@ import * as Stream from "effect/Stream";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
-import { checkPiProviderStatus } from "./status.ts";
+import { checkPiProviderStatus, needsPiStatusRefresh } from "./status.ts";
 
 const encoder = new TextEncoder();
 
@@ -61,6 +61,36 @@ describe("OmpProvider", () => {
 
       assert.equal(snapshot.status, "ready");
       assert.equal(snapshot.version, "18.6.1");
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps the periodic check only until OMP is ready and authenticated", () =>
+    Effect.gen(function* () {
+      // --help succeeds and RPC discovery fails: ready, but no models yet.
+      const spawner = ChildProcessSpawner.make((command) => {
+        const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+        return Effect.succeed(
+          args.includes("--help")
+            ? processHandle({ stdout: "omp v18.6.1\n" })
+            : processHandle({ stderr: "RPC startup failed", exitCode: 1 }),
+        );
+      });
+      const discoveryFailed = yield* checkPiProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      assert.equal(discoveryFailed.status, "ready");
+      assert.equal(discoveryFailed.auth.status, "unknown");
+      assert.isTrue(needsPiStatusRefresh(discoveryFailed));
+
+      assert.isFalse(
+        needsPiStatusRefresh({ status: "ready", auth: { status: "authenticated", type: "pi" } }),
+      );
+      assert.isTrue(
+        needsPiStatusRefresh({
+          status: "warning",
+          auth: { status: "unauthenticated", type: "pi" },
+        }),
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
