@@ -2355,6 +2355,8 @@ export default function ChatView(props: ChatViewProps) {
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
     toggleRightPanelMaximizedStable,
+    splitRightPanelStable,
+    closeRightPaneStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,
     shortcuts: rightPanelShortcuts,
@@ -2662,6 +2664,7 @@ export default function ChatView(props: ChatViewProps) {
     terminalOpen: Boolean(terminalUiState.terminalOpen),
     previewFocus: isPreviewFocused(),
     previewOpen: previewPanelOpen,
+    rightPanelOpen,
     editableFocus: isEditableFocused(eventTarget),
     modelPickerOpen: composerRef.current?.isModelPickerOpen() ?? false,
     composerFocus:
@@ -2747,8 +2750,16 @@ export default function ChatView(props: ChatViewProps) {
     return window.desktopBridge?.onMenuAction((action) => {
       if (action === "rightPanel.toggle") toggleRightPanelStable();
       else if (action === "rightPanel.toggleMaximized") toggleRightPanelMaximizedStable();
+      else if (action === "rightPanel.split") splitRightPanelStable();
+      else if (action === "rightPanel.closePane") closeRightPaneStable();
     });
-  }, [embedded, toggleRightPanelStable, toggleRightPanelMaximizedStable]);
+  }, [
+    embedded,
+    toggleRightPanelStable,
+    toggleRightPanelMaximizedStable,
+    splitRightPanelStable,
+    closeRightPaneStable,
+  ]);
 
   usePasteToFocusComposer(embedded ? null : activeThreadId, composerRef);
   // A delegated task is a remote thread's subagent.

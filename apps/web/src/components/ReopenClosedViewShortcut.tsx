@@ -49,6 +49,8 @@ const PREVIEW_FORWARDED_COMMANDS = [
   "sidebar.toggle",
   "rightPanel.toggle",
   "rightPanel.toggleMaximized",
+  "rightPanel.split",
+  "rightPanel.closePane",
   "preview.focusUrl",
 ] as const;
 
@@ -196,6 +198,8 @@ export function ReopenClosedViewShortcut() {
         previewFocus: true,
         previewOpen: true,
         terminalFocus: false,
+        // A focused browser page sits in the right panel, so Cmd+D can close that pane.
+        rightPanelOpen: true,
         terminalOpen,
         editableFocus: false,
         modelPickerOpen: false,

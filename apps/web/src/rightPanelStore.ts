@@ -178,6 +178,8 @@ interface RightPanelStoreState {
   ) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
   show: (ref: ScopedThreadRef) => void;
+  /** Opens the panel on its surface picker and keeps existing tabs, like a new herdr pane. */
+  showLauncher: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
@@ -290,6 +292,10 @@ export function pullRequestSurface(target: {
     ...(target.detailTab === undefined ? {} : { detailTab: target.detailTab }),
   };
 }
+
+/** The user opened the picker over existing tabs; reconciliation must not replace it. */
+const showsLauncher = (current: ThreadRightPanelState): boolean =>
+  current.isOpen && current.activeSurfaceId === null && current.surfaces.length > 0;
 
 const upsertSurface = (
   current: ThreadRightPanelState,
@@ -1029,9 +1035,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               ...current,
               isOpen: closedLastSessionTab ? false : current.isOpen,
               surfaces,
-              activeSurfaceId: activeStillExists
-                ? current.activeSurfaceId
-                : (fallbackBrowser?.id ?? surfaces[0]?.id ?? null),
+              activeSurfaceId:
+                activeStillExists || showsLauncher(current)
+                  ? current.activeSurfaceId
+                  : (fallbackBrowser?.id ?? surfaces[0]?.id ?? null),
             };
           }),
         ),
@@ -1052,9 +1059,10 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               ...current,
               isOpen: surfaces.length > 0 ? current.isOpen : false,
               surfaces,
-              activeSurfaceId: activeStillExists
-                ? current.activeSurfaceId
-                : (surfaces.at(-1)?.id ?? null),
+              activeSurfaceId:
+                activeStillExists || showsLauncher(current)
+                  ? current.activeSurfaceId
+                  : (surfaces.at(-1)?.id ?? null),
             };
           }),
         ),
@@ -1062,6 +1070,14 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
             current.isOpen ? current : { ...current, isOpen: true },
+          ),
+        ),
+      showLauncher: (ref) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) =>
+            current.isOpen && current.activeSurfaceId === null
+              ? current
+              : { ...current, isOpen: true, activeSurfaceId: null },
           ),
         ),
       close: (ref) =>

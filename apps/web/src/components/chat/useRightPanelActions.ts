@@ -228,6 +228,21 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     focusActivePanelTerminal(activeThreadRef);
   };
   const toggleRightPanelStable = useStableCallback(toggleRightPanel);
+  /** Cmd+\ or Cmd+/: open the right pane on its surface picker, like a new herdr pane. */
+  const splitRightPanel = () => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().showLauncher(activeThreadRef);
+    // Like a new herdr pane, the picker takes focus even when the panel was already open.
+    requestWorkspaceFocus({ area: "panel", restore: false });
+  };
+  const splitRightPanelStable = useStableCallback(splitRightPanel);
+  /** Cmd+D: close the right pane. Tabs stay so the next split can return to them. */
+  const closeRightPane = () => {
+    if (!activeThreadRef || !rightPanelOpen) return;
+    closePreviewPanel();
+    requestWorkspaceContentFocus();
+  };
+  const closeRightPaneStable = useStableCallback(closeRightPane);
   const toggleThreadPanel = () => {
     if (!activeThreadRef) return;
     const store = useRightPanelStore.getState();
@@ -337,6 +352,14 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
       if (!activeRightPanelSurface) return false;
       if (!event.repeat) closeRightPanelSurface(activeRightPanelSurface);
     },
+    "rightPanel.split": ({ event }) => {
+      if (!activeThreadRef) return false;
+      if (!event.repeat) splitRightPanel();
+    },
+    "rightPanel.closePane": ({ event }) => {
+      if (!rightPanelOpen) return false;
+      if (!event.repeat) closeRightPane();
+    },
     "diff.toggle": () => onToggleDiff(),
   } satisfies ChatShortcutCommands;
 
@@ -351,6 +374,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     closePreviewPanelStable,
     copyRightPanelFilePathStable,
     createBrowserSurface,
+    closeRightPaneStable,
     createBrowserSurfaceStable,
     moveRightPanelSurfaceStable,
     onOpenToolDiffStable,
@@ -358,6 +382,7 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     onToggleDiffStable,
     openChangesFromThreadPanelStable,
     openFileSurfaceStable,
+    splitRightPanelStable,
     toggleRightPanelMaximizedStable,
     toggleRightPanelStable,
     toggleThreadPanelStable,

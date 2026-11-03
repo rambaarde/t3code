@@ -1238,4 +1238,20 @@ describe("rightPanelStore", () => {
     expect(surfaceIds()).toEqual(["browser:tab-a", "terminal:term-1", "diff", "browser:tab-b"]);
     expect(store.getUserActionRevision(refA)).toBe(revision);
   });
+
+  it("keeps the surface picker open over existing tabs through reconciliation", () => {
+    const store = useRightPanelStore.getState();
+    store.openBrowser(refA, "tab-a");
+    store.open(refA, "diff");
+    store.close(refA);
+
+    store.showLauncher(refA);
+    store.reconcileBrowserSurfaces(refA, ["tab-a", "tab-b"]);
+    expect(
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA),
+    ).toMatchObject({ isOpen: true, activeSurfaceId: null });
+
+    store.activateSurface(refA, "diff");
+    expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+  });
 });
