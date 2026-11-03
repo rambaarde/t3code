@@ -13,6 +13,9 @@ import * as Context from "effect/Context";
 import * as Digest from "effect/crypto/Digest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
+import * as Path from "effect/Path";
 import * as Base64Url from "effect/encoding/Base64Url";
 import * as Hex from "effect/encoding/Hex";
 import * as KeyedLock from "@t3tools/shared/KeyedLock";
@@ -22,6 +25,7 @@ import * as Schema from "effect/Schema";
 import { isGitImport, parseTurnDiffFilesFromNumstat } from "../checkpointing/Diffs.ts";
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
+import { listNestedRepositories } from "../vcs/nestedRepositories.ts";
 
 const CHECKPOINT_REFS_PREFIX = "refs/t3/orchestration-v2/checkpoints";
 const ROOT_CHECKPOINT_SCOPE_NAME = "root";
@@ -247,6 +251,44 @@ export const layer: Layer.Layer<
     const isGitCheckpointable = (cwd: string) =>
       checkpointStore.isGitRepository(cwd).pipe(Effect.orElseSucceed(() => false));
 
+    // Optional so test layers without a file system keep working; the server always provides one.
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+    const pathService = yield* Effect.serviceOption(Path.Path);
+    /**
+     * Runs `effect` in each git repo one folder below `cwd` (app repos that the root repo
+     * ignores). They get the same checkpoint refs as the root, so the Diff panel can show a turn's
+     * changes in them. View-only: restore and revert use only the root repo. Never fails.
+     */
+    const forEachNestedRepository = (
+      cwd: string,
+      label: string,
+      effect: (repositoryCwd: string) => Effect.Effect<unknown, unknown>,
+    ) =>
+      Option.isNone(fileSystem) || Option.isNone(pathService)
+        ? Effect.void
+        : listNestedRepositories(cwd).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem.value),
+            Effect.provideService(Path.Path, pathService.value),
+            Effect.flatMap(({ repositories }) =>
+              Effect.forEach(
+                repositories,
+                (repository) =>
+                  effect(repository.path).pipe(
+                    Effect.catch((cause) =>
+                      Effect.logWarning(`orchestration V2 nested repository ${label} failed`, {
+                        cwd: repository.path,
+                        cause: String(cause),
+                      }),
+                    ),
+                  ),
+                { discard: true },
+              ),
+            ),
+          );
+    const captureNestedCheckpoints = (cwd: string, checkpointRef: CheckpointRef) =>
+      forEachNestedRepository(cwd, "checkpoint capture", (repositoryCwd) =>
+        checkpointStore.captureCheckpoint({ cwd: repositoryCwd, checkpointRef }),
+      );
     const captureBaseline: CheckpointServiceV2Shape["captureBaseline"] = (input) =>
       withWorkspaceLock(
         input.scope.cwd,
@@ -277,6 +319,7 @@ export const layer: Layer.Layer<
                 VcsUnsupportedOperationError: () => Effect.void,
               }),
             );
+          yield* captureNestedCheckpoints(input.scope.cwd, checkpointRef);
         }),
       ).pipe(
         Effect.mapError(
@@ -419,6 +462,8 @@ export const layer: Layer.Layer<
             });
           }
 
+          yield* captureNestedCheckpoints(input.scope.cwd, checkpointRef);
+
           const previousExists = yield* checkpointStore
             .hasCheckpointRef({
               cwd: input.scope.cwd,
@@ -541,10 +586,21 @@ export const layer: Layer.Layer<
     const deleteStaleRefs: CheckpointServiceV2Shape["deleteStaleRefs"] = (input) =>
       withWorkspaceLock(
         input.scope.cwd,
-        checkpointStore.deleteCheckpointRefs({
-          cwd: input.scope.cwd,
-          checkpointRefs: input.checkpoints.map((checkpoint) => checkpoint.ref),
-        }),
+        checkpointStore
+          .deleteCheckpointRefs({
+            cwd: input.scope.cwd,
+            checkpointRefs: input.checkpoints.map((checkpoint) => checkpoint.ref),
+          })
+          .pipe(
+            Effect.andThen(
+              forEachNestedRepository(input.scope.cwd, "checkpoint cleanup", (repositoryCwd) =>
+                checkpointStore.deleteCheckpointRefs({
+                  cwd: repositoryCwd,
+                  checkpointRefs: input.checkpoints.map((checkpoint) => checkpoint.ref),
+                }),
+              ),
+            ),
+          ),
       ).pipe(
         Effect.mapError(
           (cause) =>

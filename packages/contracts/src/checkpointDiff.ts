@@ -30,6 +30,11 @@ export const OrchestrationGetTurnDiffInput = TurnCountRange.mapFields(
   Struct.assign({
     threadId: ThreadId,
     ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+    /**
+     * A git repo one folder below the thread's workspace (from `vcs.listNestedRepositories`).
+     * Its turn snapshots are view-only; absent means the workspace repo itself.
+     */
+    repositoryPath: Schema.optionalKey(TrimmedNonEmptyString),
   }),
   { unsafePreserveChecks: true },
 );
@@ -42,6 +47,8 @@ export const OrchestrationGetFullThreadDiffInput = Schema.Struct({
   threadId: ThreadId,
   toTurnCount: NonNegativeInt,
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  /** Same as `OrchestrationGetTurnDiffInput.repositoryPath`. */
+  repositoryPath: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type OrchestrationGetFullThreadDiffInput = typeof OrchestrationGetFullThreadDiffInput.Type;
 

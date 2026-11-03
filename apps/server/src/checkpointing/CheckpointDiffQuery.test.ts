@@ -15,7 +15,11 @@ import * as VcsDriverRegistry from "../vcs/VcsDriverRegistry.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as CheckpointDiffQuery from "./CheckpointDiffQuery.ts";
 import * as CheckpointStore from "./CheckpointStore.ts";
-import { CheckpointRefUnavailableError, CheckpointTurnRangeUnavailableError } from "./Errors.ts";
+import {
+  CheckpointRefUnavailableError,
+  CheckpointTurnRangeUnavailableError,
+  CheckpointWorkspacePathMissingError,
+} from "./Errors.ts";
 
 const threadId = ThreadId.make("thread:checkpoint-diff-v2");
 const firstRunId = RunId.make("run:checkpoint-diff-v2:1");
@@ -103,6 +107,30 @@ it.effect("excludes ready checkpoints from rolled-back runs", () => {
       },
       { requestedTurnCount: 2, availableTurnCount: 1 },
     );
+  }).pipe(Effect.provide(layer));
+});
+
+it.effect("diffs a nested repo's view-only snapshots, and only a direct child of the scope", () => {
+  const cwds: string[] = [];
+  const layer = layerFor({
+    projection: Effect.succeed(makeProjection()),
+    diffCheckpoints: (input) => {
+      cwds.push(input.cwd);
+      return Effect.succeed("");
+    },
+  });
+
+  return Effect.gen(function* () {
+    const query = yield* CheckpointDiffQuery.CheckpointDiffQuery;
+    const diffIn = (repositoryPath: string) =>
+      query.getTurnDiff({ threadId, fromTurnCount: 0, toTurnCount: 2, repositoryPath });
+
+    yield* diffIn("/repo/app/");
+    assert.isTrue(cwds.length > 0 && cwds.every((cwd) => cwd === "/repo/app"));
+    for (const outside of ["/repo/app/..", "/repo/..", "/elsewhere/app", "/repo/app/src", "app"]) {
+      const error = yield* diffIn(outside).pipe(Effect.flip);
+      assert.instanceOf(error, CheckpointWorkspacePathMissingError, outside);
+    }
   }).pipe(Effect.provide(layer));
 });
 

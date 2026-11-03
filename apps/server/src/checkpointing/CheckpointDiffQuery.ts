@@ -202,8 +202,25 @@ export const make = Effect.gen(function* () {
         });
       }
 
+      // A nested repo must sit directly in the scope folder; its refs come from the same capture.
+      const repositoryPath = input.repositoryPath?.replace(/[\\/]+$/u, "");
+      if (repositoryPath !== undefined) {
+        const separator = repositoryPath.search(/[\\/][^\\/]+$/u);
+        const name = repositoryPath.slice(separator + 1);
+        if (
+          separator < 0 ||
+          name === "." ||
+          name === ".." ||
+          repositoryPath.slice(0, separator) !== toScope.cwd.replace(/[\\/]+$/u, "")
+        ) {
+          return yield* new CheckpointWorkspacePathMissingError({
+            operation,
+            threadId: input.threadId,
+          });
+        }
+      }
       const comparison = {
-        cwd: toScope.cwd,
+        cwd: repositoryPath ?? toScope.cwd,
         fromCheckpointRef,
         toCheckpointRef: toCheckpoint.ref,
         fallbackFromToHead: false,
@@ -300,6 +317,7 @@ export const make = Effect.gen(function* () {
       fromTurnCount: 0,
       toTurnCount: input.toTurnCount,
       ignoreWhitespace,
+      ...(input.repositoryPath === undefined ? {} : { repositoryPath: input.repositoryPath }),
     });
     if (!isTurnDiffResult(turnDiff)) {
       return yield* new CheckpointDiffResultInvalidError({

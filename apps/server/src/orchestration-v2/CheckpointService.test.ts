@@ -1,4 +1,5 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointScopeId,
@@ -12,6 +13,8 @@ import {
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
+import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
 
 import * as CheckpointStore from "../checkpointing/CheckpointStore.ts";
@@ -93,4 +96,74 @@ it.effect(
         }).pipe(Effect.provide(layerTest));
       }
     }),
+);
+
+it.effect(
+  "snapshots nested app repos with the root, and a nested failure keeps the turn ready",
+  () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const root = yield* fs.makeTempDirectoryScoped({ prefix: "t3-nested-checkpoint-" });
+      for (const folder of ["app/.git", "broken/.git", "node_modules/lib/.git", "plain"]) {
+        yield* fs.makeDirectory(path.join(root, folder), { recursive: true });
+      }
+      const scope: OrchestrationV2CheckpointScope = {
+        id: CheckpointScopeId.make("checkpoint-scope:nested"),
+        threadId: ThreadId.make("thread:nested"),
+        runId: RunId.make("run:nested:1"),
+        nodeId: NodeId.make("node:nested:1"),
+        parentScopeId: null,
+        providerThreadId: ProviderThreadId.make("provider-thread:nested"),
+        kind: "root_run",
+        ordinalWithinParent: 0,
+        advancesAppRunCount: true,
+        cwd: root,
+        createdAt: DateTime.makeUnsafe("2026-11-04T00:00:00.000Z"),
+      };
+      const captured: string[] = [];
+      const layerTest = CheckpointService.layer.pipe(
+        Layer.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            Layer.mock(CheckpointStore.CheckpointStore)({
+              isGitRepository: () => Effect.succeed(true),
+              hasCheckpointRef: () => Effect.succeed(false),
+              captureCheckpoint: ({ cwd }) => {
+                if (cwd.endsWith("broken")) {
+                  return Effect.fail(
+                    new VcsUnsupportedOperationError({
+                      operation: "test.capture",
+                      kind: "git",
+                      detail: "broken nested repo",
+                    }),
+                  );
+                }
+                captured.push(path.relative(root, cwd) || ".");
+                return Effect.void;
+              },
+              diffCheckpoints: () => Effect.succeed(""),
+              listAuthoredPaths: () => Effect.succeed(null),
+            }),
+          ),
+        ),
+        Layer.provideMerge(NodeCrypto.layer),
+        Layer.provideMerge(NodeServices.layer),
+      );
+      const checkpoint = yield* Effect.gen(function* () {
+        const checkpoints = yield* CheckpointService.CheckpointServiceV2;
+        yield* checkpoints.captureBaseline({ scope, ordinalWithinScope: 0 });
+        return yield* checkpoints.capture({
+          scope,
+          ordinalWithinScope: 1,
+          runId: scope.runId!,
+          nodeId: scope.nodeId!,
+          appRunOrdinal: 1,
+          capturedAt: scope.createdAt,
+        });
+      }).pipe(Effect.provide(layerTest));
+
+      assert.strictEqual(checkpoint.status, "ready");
+      assert.deepEqual(captured, [".", "app", ".", "app"]);
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
 );

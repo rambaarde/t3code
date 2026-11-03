@@ -414,6 +414,7 @@ export function useCheckpointDiff(
     target.threadId !== null &&
     target.fromTurnCount !== null &&
     target.toTurnCount !== null;
+  const repository = target.repositoryPath ? { repositoryPath: target.repositoryPath } : {};
   const fullThreadTarget =
     enabled && target.fromTurnCount === 0
       ? {
@@ -422,6 +423,7 @@ export function useCheckpointDiff(
             threadId: target.threadId!,
             toTurnCount: target.toTurnCount!,
             ignoreWhitespace: target.ignoreWhitespace,
+            ...repository,
           },
         }
       : null;
@@ -434,6 +436,7 @@ export function useCheckpointDiff(
             fromTurnCount: target.fromTurnCount!,
             toTurnCount: target.toTurnCount!,
             ignoreWhitespace: target.ignoreWhitespace,
+            ...repository,
           },
         }
       : null;

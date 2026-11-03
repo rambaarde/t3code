@@ -393,7 +393,10 @@ export default function DiffPanel({
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
       ignoreWhitespace: diffIgnoreWhitespace,
-      cacheScope: selectedTurn ? `turn:${selectedTurn.runId}` : null,
+      cacheScope: selectedTurn
+        ? `turn:${selectedTurn.runId}${selectedNestedRepository ? `:${selectedNestedRepository.path}` : ""}`
+        : null,
+      repositoryPath: selectedNestedRepository?.path ?? null,
     },
     { enabled: isGitRepo && selectedTurn !== undefined },
   );

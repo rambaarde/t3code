@@ -22,4 +22,6 @@ export interface CheckpointDiffTarget {
   readonly toTurnCount: number | null;
   readonly ignoreWhitespace: boolean;
   readonly cacheScope?: string | null;
+  /** Nested repo whose view-only turn snapshots to diff; absent means the workspace repo. */
+  readonly repositoryPath?: string | null;
 }

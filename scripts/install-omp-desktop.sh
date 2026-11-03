@@ -16,6 +16,8 @@ set -euo pipefail
 APP="${T3_APP:-/Applications/T3 Code OMP.app}"
 ROLLBACK="${T3_ROLLBACK:-/tmp/T3-Code-OMP.rollback.app}"
 BUNDLE_ID="com.t3tools.t3code"
+STATE_DB="${T3_STATE_DB:-$HOME/.t3/userdata/statev2.sqlite}"
+STATE_DB_BACKUP="${STATE_DB}.pre-install"
 REQUIRE="${T3_REQUIRE:-needsPiStatusRefresh}"
 ASSUME_YES=0
 BUILD_ONLY=0
@@ -90,6 +92,8 @@ if [[ "$ROLLBACK_ONLY" == 1 ]]; then
   launch_t3
   running || fail "rolled back, but the app did not start"
   echo "install-omp-desktop: rolled back to $APP"
+  [[ -f "$STATE_DB_BACKUP" ]] &&
+    echo "install-omp-desktop: if the old app cannot read its threads, quit it and copy $STATE_DB_BACKUP over $STATE_DB"
   exit 0
 fi
 
@@ -123,6 +127,11 @@ if [[ "$ASSUME_YES" != 1 ]]; then
 fi
 
 quit_t3
+# A new build can migrate the state database; an older rollback build may not read it.
+if [[ -f "$STATE_DB" ]]; then
+  sqlite3 "$STATE_DB" ".backup '$STATE_DB_BACKUP'" || fail "could not back up $STATE_DB"
+  echo "install-omp-desktop: state database backed up to $STATE_DB_BACKUP"
+fi
 if [[ -d "$APP" ]]; then
   rm -rf "$ROLLBACK"
   mv "$APP" "$ROLLBACK"
