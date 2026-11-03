@@ -223,6 +223,8 @@ interface MessagesTimelineProps {
     citation: AssistantCitation,
     sourceAnchor: AssistantCitationSourceAnchor,
   ) => boolean;
+  /** Opens a side chat with the selected assistant text quoted in its composer. */
+  onAskInSideChat?: ((selectedText: string) => void) | undefined;
   isWorking: boolean;
   runlessWorkActive?: boolean;
   activeTurnStartedAt?: string | null;
@@ -336,6 +338,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   citationRequest = null,
   citationHistory = CITED_HISTORY_LOADING,
   onCiteAssistantText,
+  onAskInSideChat,
   isWorking,
   runlessWorkActive = false,
   activeTurnStartedAt = null,
@@ -1315,6 +1318,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
                 viewport={timelineViewportElement}
                 threadRef={citationThreadRef}
                 onCite={onCiteAssistantText}
+                onAskInSideChat={onAskInSideChat}
               />
             ) : null}
             <LegendList<MessagesTimelineRow>

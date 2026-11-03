@@ -33,6 +33,36 @@ export function normalizeOmpTodoPhases(input: unknown): ReadonlyArray<OmpTodoSte
   return steps;
 }
 
+export type OmpWebSearch = {
+  readonly patterns?: ReadonlyArray<string>;
+  readonly results?: ReadonlyArray<{
+    readonly title?: string;
+    readonly url?: string;
+    readonly snippet?: string;
+  }>;
+};
+
+/** OMP's web_search tool: `args.query`, and `result.details.response.sources` once it finishes. */
+export function normalizeOmpWebSearch(args: unknown, result: unknown): OmpWebSearch {
+  const query = recordString(args, "query")?.trim();
+  const sources = recordField(recordField(recordField(result, "details"), "response"), "sources");
+  const results = Array.isArray(sources)
+    ? sources.flatMap((source) => {
+        const url = recordString(source, "url")?.trim();
+        const title = recordString(source, "title")?.trim();
+        const snippet = (recordString(source, "snippet") ?? recordString(source, "text"))?.trim();
+        if (!url && !title) return [];
+        return [
+          { ...(title ? { title } : {}), ...(url ? { url } : {}), ...(snippet ? { snippet } : {}) },
+        ];
+      })
+    : [];
+  return {
+    ...(query ? { patterns: [query] } : {}),
+    ...(results.length > 0 ? { results } : {}),
+  };
+}
+
 export type OmpSubagentStatus = "running" | "completed" | "failed" | "interrupted";
 
 export type OmpSubagentSnapshot = {

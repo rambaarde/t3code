@@ -66,7 +66,11 @@ import {
   type PiRpcConnection,
   type PiRpcRecord,
 } from "./rpc.ts";
-import { normalizeOmpSubagentPayload, normalizeOmpTodoPhases } from "./ompProtocol.ts";
+import {
+  normalizeOmpSubagentPayload,
+  normalizeOmpTodoPhases,
+  normalizeOmpWebSearch,
+} from "./ompProtocol.ts";
 import {
   buildPiRpcLaunch,
   materializePiT3McpExtension,
@@ -763,6 +767,8 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
       });
       const emitTodoSnapshot = Effect.fnUntraced(function* (turn: ActivePiTurn, data: unknown) {
         const steps = normalizeOmpTodoPhases(data);
+        // A turn that never wrote todos has nothing to show; an empty row reads "Tasks 0/0".
+        if (steps.length === 0 && turn.planId === null) return;
         if (turn.planId === null) {
           turn.planId = yield* idAllocator.allocate.plan({
             threadId: turn.turnInput.threadId,
@@ -1075,6 +1081,9 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
           status,
           completedAt: completed ? emittedAt : null,
         } as const;
+        // OMP tools carry a one-line intent ("Reading model role settings"); the TUI shows it per call.
+        const intent = (recordString(event, "intent") ?? recordString(args, "i"))?.trim();
+        const title = intent !== undefined && intent.length > 0 ? intent : toolName;
         if (toolName === "bash" || toolName === "powershell") {
           const exitCode =
             recordNumber(recordField(resultRecord, "structuredContent"), "exit_code") ??
@@ -1084,7 +1093,7 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
             driver: OMP_PROVIDER,
             turnItem: {
               ...shared,
-              title: toolName,
+              title,
               type: "command_execution",
               input: recordString(args, "command") ?? "",
               ...(outputText.length > 0 ? { output: outputText } : {}),
@@ -1105,7 +1114,7 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
               driver: OMP_PROVIDER,
               turnItem: {
                 ...shared,
-                title: toolName,
+                title,
                 type: "file_change",
                 fileName,
                 ...(diffStr === undefined ? {} : { diffStr }),
@@ -1115,13 +1124,28 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
             return;
           }
         }
+        // One item keeps one type across start/update/end, so search stays a web_search card throughout.
+        if (toolName === "web_search") {
+          const search = normalizeOmpWebSearch(args, resultRecord);
+          yield* emit({
+            type: "turn_item.updated",
+            driver: OMP_PROVIDER,
+            turnItem: {
+              ...shared,
+              title: title === toolName ? "Web search" : title,
+              type: "web_search",
+              ...search,
+            },
+          });
+          return;
+        }
         const output = piToolOutput(resultRecord, toolName);
         yield* emit({
           type: "turn_item.updated",
           driver: OMP_PROVIDER,
           turnItem: {
             ...shared,
-            title: toolName,
+            title,
             type: "dynamic_tool",
             ...mcpToolPresentation({ toolName }),
             toolName,
@@ -1131,6 +1155,11 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         });
         if (toolName === "subagent") {
           yield* emitSubagentTasks(turn, toolCallId, resultRecord, completed);
+        }
+        // The todo tool returns the whole list, so the GUI updates as each step changes, like the TUI.
+        if (toolName === "todo" && completed && !isError) {
+          const phases = recordField(recordField(resultRecord, "details"), "phases");
+          if (Array.isArray(phases)) yield* emitTodoSnapshot(turn, { todoPhases: phases });
         }
       });
 

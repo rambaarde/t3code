@@ -1,6 +1,10 @@
 import { assert, it } from "@effect/vitest";
 
-import { normalizeOmpSubagentPayload, normalizeOmpTodoPhases } from "./ompProtocol.ts";
+import {
+  normalizeOmpSubagentPayload,
+  normalizeOmpTodoPhases,
+  normalizeOmpWebSearch,
+} from "./ompProtocol.ts";
 
 it("normalizes OMP todo phases into stable T3 step statuses", () => {
   assert.deepStrictEqual(
@@ -46,4 +50,33 @@ it("normalizes OMP subagent lifecycle payloads for live activity rows", () => {
     },
   );
   assert.strictEqual(normalizeOmpSubagentPayload({ status: "started" }), null);
+});
+
+it("maps an OMP web search to its query and readable sources", () => {
+  assert.deepStrictEqual(
+    normalizeOmpWebSearch(
+      { i: "Checking docs", query: " supabase rls " },
+      {
+        details: {
+          response: {
+            sources: [
+              { title: "RLS", url: "https://supabase.com/docs/rls", snippet: " Policies " },
+              { title: "Untitled source" },
+              { author: "no title or url" },
+            ],
+          },
+        },
+      },
+    ),
+    {
+      patterns: ["supabase rls"],
+      results: [
+        { title: "RLS", url: "https://supabase.com/docs/rls", snippet: "Policies" },
+        { title: "Untitled source" },
+      ],
+    },
+  );
+  assert.deepStrictEqual(normalizeOmpWebSearch({ query: "running" }, undefined), {
+    patterns: ["running"],
+  });
 });

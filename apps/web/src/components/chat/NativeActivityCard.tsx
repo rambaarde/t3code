@@ -247,7 +247,12 @@ export function NativeActivityCard({
         <ActivityCardShell
           kind={activityKindForTool(toolName)}
           summary={toolPrimaryArgument(item.input)}
-          title={toolActivityTitle(toolName)}
+          // OMP sends each call's intent as its title, like the TUI's per-tool line.
+          title={
+            item.nativeItemRef?.driver === "omp" && item.title && item.title !== toolName
+              ? item.title
+              : toolActivityTitle(toolName)
+          }
           toolName={toolName}
           status={item.status}
         >

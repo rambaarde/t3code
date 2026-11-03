@@ -2804,6 +2804,14 @@ export default function ChatView(props: ChatViewProps) {
                 : null;
   const openSideChatStable = useStableCallback(() => void sideChat.open());
   const sendSideChatStable = useStableCallback((prompt: string) => sideChat.open(prompt));
+  const askInSideChatStable = useStableCallback((selectedText: string) => {
+    const quote = selectedText
+      .trim()
+      .split("\n")
+      .map((line) => `> ${line}`)
+      .join("\n");
+    void sideChat.open(undefined, `${quote}\n\n`);
+  });
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
       environmentId,
@@ -3412,6 +3420,9 @@ export default function ChatView(props: ChatViewProps) {
                 citationRequest={citationRequest}
                 citationHistory={citationHistory}
                 onCiteAssistantText={citeAssistantTextStable}
+                {...(sideChat.available && sideChatDisabledReason === null
+                  ? { onAskInSideChat: askInSideChatStable }
+                  : {})}
                 {...(activeProject
                   ? { onRunShellCommand: parentPanel?.runShellCommand ?? runShellCommandStable }
                   : {})}
