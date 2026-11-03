@@ -9,6 +9,7 @@ import {
   type ReviewBranchCommitsResult,
   type ReviewDiffPreviewResult,
   type ScopedThreadRef,
+  type VcsListNestedRepositoriesResult,
   type VcsListRefsResult,
   type VcsStatusResult,
 } from "@t3tools/contracts";
@@ -32,6 +33,7 @@ const state = vi.hoisted(() => ({
   localRefs: null as unknown as ResultAtom<VcsListRefsResult>,
   remoteRefs: null as unknown as ResultAtom<VcsListRefsResult>,
   commits: null as unknown as ResultAtom<ReviewBranchCommitsResult>,
+  nestedRepositories: null as unknown as ResultAtom<VcsListNestedRepositoriesResult>,
 }));
 
 vi.mock("~/state/server", () => ({
@@ -50,6 +52,7 @@ vi.mock("~/state/vcs", () => ({
     status: () => state.status,
     listRefs: ({ input }: { input: { refKind: "local" | "remote" } }) =>
       input.refKind === "local" ? state.localRefs : state.remoteRefs,
+    nestedRepositories: () => state.nestedRepositories,
   },
 }));
 vi.mock("~/state/entities", () => ({
@@ -163,6 +166,7 @@ function setup(failedBaseRef: string | null) {
   state.localRefs = Atom.make(AsyncResult.success(refs(["dev", "main"], false)));
   state.remoteRefs = Atom.make(AsyncResult.success(refs(["origin/orphan"], true)));
   state.commits = Atom.make(AsyncResult.success({ commits: [], truncated: false }));
+  state.nestedRepositories = Atom.make(AsyncResult.success({ repositories: [] }));
   useDiffPanelStore.getState().selectBranchBaseRef(state.threadRef, failedBaseRef);
   const registry = AtomRegistry.make();
   return {

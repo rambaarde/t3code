@@ -9,6 +9,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { useClosedViewStore } from "./closedViewStore";
 import { resolveStorage } from "./lib/storage";
+import { randomUUID } from "./lib/utils";
 import type { ThreadPanelPresentation } from "./rightPanelLayout";
 import type { ChatFileAttachment } from "./types";
 
@@ -46,7 +47,8 @@ export type RightPanelSurface =
       activeTerminalId: string;
       splitDirection?: "horizontal" | "vertical";
     }
-  | { id: "diff"; kind: "diff" }
+  // The first Diff tab is `diff`; agent and link opens land there. Extra tabs come from +.
+  | { id: "diff" | `diff:${string}`; kind: "diff" }
   | {
       id: "files";
       kind: "files";
@@ -88,6 +90,21 @@ export const PULL_REQUESTS_PANEL_REF = scopeThreadRef(
 
 const isPullRequestsPanelKey = (threadKey: string) => threadKey.endsWith(":pull-requests-panel");
 
+export type RightPanelSplitOrientation = "horizontal" | "vertical";
+
+/**
+ * Two panes share the tab strip. `activeSurfaceId` is always the focused pane's surface, so
+ * every existing action targets the focused pane; the other pane shows `otherSurfaceId`.
+ */
+export interface RightPanelSplit {
+  /** The unfocused pane's surface; null shows an empty pane. */
+  otherSurfaceId: string | null;
+  /** Whether the focused pane is the second one (right, or bottom when stacked). */
+  focusSecond: boolean;
+  /** "horizontal" puts the panes side by side; "vertical" stacks them. */
+  orientation: RightPanelSplitOrientation;
+}
+
 export interface ThreadRightPanelState {
   isOpen: boolean;
   activeSurfaceId: string | null;
@@ -95,6 +112,7 @@ export interface ThreadRightPanelState {
   dismissedDeviceSurfaceIds?: string[];
   maximized?: true;
   proactiveDiffTurnId?: RunId;
+  split?: RightPanelSplit;
 }
 
 export interface ThreadPanelVisibility {
@@ -104,6 +122,8 @@ export interface ThreadPanelVisibility {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
+  /** The layout the next split uses; changing a split's layout updates it. */
+  preferredSplitOrientation: RightPanelSplitOrientation;
   pendingMaximizeThreadKey: string | null;
   requestMaximize: (ref: ScopedThreadRef) => void;
   consumeMaximizeRequest: (ref: ScopedThreadRef) => boolean;
@@ -178,8 +198,14 @@ interface RightPanelStoreState {
   ) => void;
   reconcileFileSurfaces: (ref: ScopedThreadRef, workspaceAvailable: boolean) => void;
   show: (ref: ScopedThreadRef) => void;
-  /** Opens the panel on its surface picker and keeps existing tabs, like a new herdr pane. */
-  showLauncher: (ref: ScopedThreadRef) => void;
+  /** Adds a Diff tab: the first is `diff`, later ones are independent `diff:<id>` tabs. */
+  addDiff: (ref: ScopedThreadRef) => void;
+  /** Cmd+\: opens the panel on the picker, or splits it into two panes with a fresh picker. */
+  splitPanel: (ref: ScopedThreadRef) => void;
+  /** Cmd+D in a split: closes the focused pane; the other pane takes the whole panel. */
+  closeFocusedPane: (ref: ScopedThreadRef) => void;
+  focusOtherPane: (ref: ScopedThreadRef) => void;
+  setSplitOrientation: (ref: ScopedThreadRef, orientation: RightPanelSplitOrientation) => void;
   close: (ref: ScopedThreadRef) => void;
   setMaximized: (ref: ScopedThreadRef, maximized: boolean) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
@@ -310,13 +336,40 @@ const upsertSurface = (
   activeSurfaceId: activate ? surface.id : current.activeSurfaceId,
 });
 
+/**
+ * Keeps a split consistent after any update: the other pane never shows a removed tab, and
+ * opening the other pane's tab moves focus to that pane instead of showing one tab twice.
+ */
+const normalizeSplit = (
+  current: ThreadRightPanelState,
+  next: ThreadRightPanelState,
+): ThreadRightPanelState => {
+  const split = next.split;
+  if (split === undefined) return next;
+  if (next.surfaces.length === 0) {
+    const { split: _dropped, ...rest } = next;
+    return rest;
+  }
+  const exists = (id: string | null) =>
+    id !== null && next.surfaces.some((surface) => surface.id === id);
+  let otherSurfaceId = exists(split.otherSurfaceId) ? split.otherSurfaceId : null;
+  let focusSecond = split.focusSecond;
+  if (next.activeSurfaceId !== null && next.activeSurfaceId === otherSurfaceId) {
+    const previous = current.activeSurfaceId;
+    otherSurfaceId = previous !== next.activeSurfaceId && exists(previous) ? previous : null;
+    focusSecond = !focusSecond;
+  }
+  if (otherSurfaceId === split.otherSurfaceId && focusSecond === split.focusSecond) return next;
+  return { ...next, split: { ...split, otherSurfaceId, focusSecond } };
+};
+
 const updateThreadStateMap = (
   byThreadKey: Record<string, ThreadRightPanelState>,
   threadKey: string,
   updater: (current: ThreadRightPanelState) => ThreadRightPanelState,
 ): Record<string, ThreadRightPanelState> => {
   const current = byThreadKey[threadKey] ?? EMPTY_THREAD_STATE;
-  const next = updater(current);
+  const next = normalizeSplit(current, updater(current));
   if (
     !next.isOpen &&
     next.activeSurfaceId === null &&
@@ -468,6 +521,25 @@ function normalizeRevealLine(line: number | undefined): number | null {
   return Math.max(1, Math.trunc(line));
 }
 
+function migratePersistedSplit(
+  value: unknown,
+  surfaces: ReadonlyArray<RightPanelSurface>,
+): RightPanelSplit | undefined {
+  if (!value || typeof value !== "object" || surfaces.length === 0) return undefined;
+  const split = value as Partial<RightPanelSplit>;
+  if (split.orientation !== "horizontal" && split.orientation !== "vertical") return undefined;
+  const otherSurfaceId =
+    typeof split.otherSurfaceId === "string" &&
+    surfaces.some((surface) => surface.id === split.otherSurfaceId)
+      ? split.otherSurfaceId
+      : null;
+  return {
+    otherSurfaceId,
+    focusSecond: split.focusSecond === true,
+    orientation: split.orientation,
+  };
+}
+
 export function migratePersistedRightPanelState(persistedState: unknown): {
   byThreadKey: Record<string, ThreadRightPanelState>;
   threadPanelVisibilityByThreadKey: Record<string, ThreadPanelVisibility>;
@@ -576,15 +648,23 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 (typeof validThreadState?.isOpen === "boolean"
                   ? validThreadState.isOpen
                   : persistedActiveSurfaceId !== null);
+              const split = migratePersistedSplit(validThreadState?.split, surfaces);
+              // A split's focused pane may be on the picker, so it keeps a null active tab.
               const activeSurfaceId =
                 persistedActiveSurfaceId ??
-                (isOpen || rawActiveSurfaceId === "agents" ? (surfaces[0]?.id ?? null) : null);
+                (split === undefined && (isOpen || rawActiveSurfaceId === "agents")
+                  ? (surfaces[0]?.id ?? null)
+                  : null);
               return [
                 threadKey,
                 {
                   isOpen,
                   surfaces,
                   activeSurfaceId,
+                  ...(split === undefined ||
+                  (split.otherSurfaceId !== null && split.otherSurfaceId === activeSurfaceId)
+                    ? {}
+                    : { split }),
                   ...(typeof validThreadState?.proactiveDiffTurnId === "string"
                     ? { proactiveDiffTurnId: RunId.make(validThreadState.proactiveDiffTurnId) }
                     : {}),
@@ -624,6 +704,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
   persist(
     (set, get) => ({
       byThreadKey: {},
+      preferredSplitOrientation: "horizontal",
       pendingMaximizeThreadKey: null,
       requestMaximize: (ref) => set({ pendingMaximizeThreadKey: scopedThreadKey(ref) }),
       consumeMaximizeRequest: (ref) => {
@@ -954,7 +1035,13 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             if (current.activeSurfaceId !== surfaceId) {
               return next;
             }
-            const fallback = surfaces[Math.min(index, surfaces.length - 1)] ?? null;
+            // In a split, the other pane keeps its tab; the focused pane falls back to a different one.
+            const otherSurfaceId = current.split?.otherSurfaceId ?? null;
+            const candidates = surfaces.filter((surface) => surface.id !== otherSurfaceId);
+            const fallback =
+              current.split === undefined
+                ? (surfaces[Math.min(index, surfaces.length - 1)] ?? null)
+                : (candidates[Math.min(index, candidates.length - 1)] ?? null);
             return {
               ...next,
               activeSurfaceId: fallback?.id ?? null,
@@ -1072,14 +1159,69 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
             current.isOpen ? current : { ...current, isOpen: true },
           ),
         ),
-      showLauncher: (ref) =>
+      addDiff: (ref) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
-            current.isOpen && current.activeSurfaceId === null
-              ? current
-              : { ...current, isOpen: true, activeSurfaceId: null },
+            upsertSurface(current, {
+              id: current.surfaces.some((surface) => surface.id === "diff")
+                ? `diff:${randomUUID()}`
+                : "diff",
+              kind: "diff",
+            }),
           ),
         ),
+      splitPanel: (ref) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            const orientation = state.preferredSplitOrientation;
+            // A closed panel, or one already on the picker, opens as a single picker pane first.
+            if (
+              !current.isOpen ||
+              (current.split === undefined && current.activeSurfaceId === null)
+            ) {
+              return { ...current, isOpen: true, activeSurfaceId: null };
+            }
+            // ponytail: two panes max; a third Cmd+\ reuses the focused pane for the picker.
+            if (current.split !== undefined) return { ...current, activeSurfaceId: null };
+            return {
+              ...current,
+              activeSurfaceId: null,
+              split: { otherSurfaceId: current.activeSurfaceId, focusSecond: true, orientation },
+            };
+          }),
+        ),
+      closeFocusedPane: (ref) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            if (current.split === undefined) return current;
+            const { split, ...rest } = current;
+            return { ...rest, activeSurfaceId: split.otherSurfaceId };
+          }),
+        ),
+      focusOtherPane: (ref) =>
+        set((state) =>
+          userAction(state, scopedThreadKey(ref), (current) => {
+            if (current.split === undefined) return current;
+            return {
+              ...current,
+              activeSurfaceId: current.split.otherSurfaceId,
+              split: {
+                ...current.split,
+                otherSurfaceId: current.activeSurfaceId,
+                focusSecond: !current.split.focusSecond,
+              },
+            };
+          }),
+        ),
+      setSplitOrientation: (ref, orientation) =>
+        set((state) => ({
+          preferredSplitOrientation: orientation,
+          ...userAction(state, scopedThreadKey(ref), (current) =>
+            current.split === undefined || current.split.orientation === orientation
+              ? current
+              : { ...current, split: { ...current.split, orientation } },
+          ),
+        })),
       close: (ref) =>
         set((state) =>
           userAction(state, scopedThreadKey(ref), (current) =>
@@ -1183,6 +1325,7 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               visibility.inlineOpen ? [] : [[threadKey, { inlineOpen: false, popoverOpen: false }]],
           ),
         ),
+        preferredSplitOrientation: state.preferredSplitOrientation,
       }),
       migrate: migratePersistedRightPanelState,
     },

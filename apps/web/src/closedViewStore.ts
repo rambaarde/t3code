@@ -61,6 +61,8 @@ const isClosedViewEntry = (entry: unknown): entry is ClosedViewEntry => {
   if (!surface || typeof surface.id !== "string") return false;
   switch (surface.kind) {
     case "diff":
+      // Extra Diff tabs are `diff:<id>`; the first one stays `diff`.
+      return surface.id === "diff" || surface.id.startsWith("diff:");
     case "files":
     case "pull-requests":
       return surface.id === surface.kind;

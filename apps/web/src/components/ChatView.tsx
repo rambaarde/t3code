@@ -153,6 +153,7 @@ import {
   selectActiveRightPanelSurface,
   selectThreadPanelOpen,
   selectThreadRightPanelState,
+  type RightPanelSurface,
   useRightPanelStore,
 } from "../rightPanelStore";
 import { isPreviewSupportedInRuntime, useThreadPreviewState } from "../previewStateStore";
@@ -1076,6 +1077,7 @@ export default function ChatView(props: ChatViewProps) {
   const rightPanelControlsAtRoot = rightPanelPresent && !shouldUsePlanSidebarSheet;
   const renderedRightPanelSurface = rightPanelPresence.value?.activeSurface ?? null;
   const renderedRightPanelSurfaces = rightPanelPresence.value?.surfaces ?? [];
+  const diffRepositoryByRoot = useDiffPanelStore((state) => state.repositoryByRoot);
   const previewMiniPlayerVisible = shouldRenderPreviewMiniPlayer(
     activePreviewMiniPlayer?.source ?? null,
     renderedRightPanelSurface,
@@ -3207,57 +3209,77 @@ export default function ChatView(props: ChatViewProps) {
     return embedded ? null : <NoActiveThreadState />;
   }
 
-  const rightPanelContent = activeThreadRef ? (
-    <RightPanelSurfaceContent
-      surface={renderedRightPanelSurface}
-      activeSurfaceId={activeRightPanelSurface?.id ?? null}
-      threadRef={activeThreadRef}
-      environmentId={activeThread.environmentId}
-      visible={rightPanelOpen}
-      composerDraftTarget={composerDraftTarget}
-      keybindings={keybindings}
-      configuredPreviewUrls={configuredPreviewUrls}
-      workspaceMutationId={workspaceMutationId}
-      getShortcutContext={getShortcutContextStable}
-      onSendAnnotation={sendPreviewAnnotationStable}
-      onCloseSurface={closeRightPanelSurface}
-      sideChatParentPanel={sideChatParentPanel}
-      terminal={{
-        launchContext: activeTerminalLaunchContext ?? null,
-        keybindings,
-        onAddTerminalContext: addTerminalContextToDraftStable,
-        onSplitTerminal: splitPanelTerminalStable,
-        onSplitTerminalVertical: splitPanelTerminalVerticalStable,
-        onNewTerminal: addTerminalSurfaceStable,
-        onActiveTerminalChange: activatePanelTerminalStable,
-        onCloseTerminal: closePanelTerminalStable,
-        splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
-        splitVerticalShortcutLabel: splitTerminalVerticalShortcutLabel ?? undefined,
-        newShortcutLabel: newTerminalShortcutLabel ?? undefined,
-        closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
-      }}
-      pullRequest={{
-        capabilityKnown: pullRequestsCapabilityKnown,
-        supported: supportsPullRequests,
-        projectId: activeThread.projectId,
-        pullRequests: visiblePullRequests,
-        linkedPullRequest: linkedThreadPullRequest,
-        branchPullRequest: activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
-        onBack:
-          pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
-            ? addPullRequestsSurfaceStable
-            : undefined,
-      }}
-      files={{
-        projectName: activeProject?.title ?? null,
-        workspaceRoot: activeWorkspaceRoot,
-        availableEditors,
-        pendingSurfaceIds: pendingFileSurfaceIds,
-        onOpenFile: openFileSurfaceStable,
-        onPendingChange: handleFilePendingChangeStable,
-      }}
-    />
-  ) : null;
+  const renderRightPanelSurface = (surface: RightPanelSurface | null) =>
+    activeThreadRef ? (
+      <RightPanelSurfaceContent
+        surface={surface}
+        activeSurfaceId={activeRightPanelSurface?.id ?? null}
+        threadRef={activeThreadRef}
+        environmentId={activeThread.environmentId}
+        visible={rightPanelOpen}
+        composerDraftTarget={composerDraftTarget}
+        keybindings={keybindings}
+        configuredPreviewUrls={configuredPreviewUrls}
+        workspaceMutationId={workspaceMutationId}
+        getShortcutContext={getShortcutContextStable}
+        onSendAnnotation={sendPreviewAnnotationStable}
+        onCloseSurface={closeRightPanelSurface}
+        sideChatParentPanel={sideChatParentPanel}
+        terminal={{
+          launchContext: activeTerminalLaunchContext ?? null,
+          keybindings,
+          onAddTerminalContext: addTerminalContextToDraftStable,
+          onSplitTerminal: splitPanelTerminalStable,
+          onSplitTerminalVertical: splitPanelTerminalVerticalStable,
+          onNewTerminal: addTerminalSurfaceStable,
+          onActiveTerminalChange: activatePanelTerminalStable,
+          onCloseTerminal: closePanelTerminalStable,
+          splitShortcutLabel: splitTerminalShortcutLabel ?? undefined,
+          splitVerticalShortcutLabel: splitTerminalVerticalShortcutLabel ?? undefined,
+          newShortcutLabel: newTerminalShortcutLabel ?? undefined,
+          closeShortcutLabel: closeTerminalShortcutLabel ?? undefined,
+        }}
+        pullRequest={{
+          capabilityKnown: pullRequestsCapabilityKnown,
+          supported: supportsPullRequests,
+          projectId: activeThread.projectId,
+          pullRequests: visiblePullRequests,
+          linkedPullRequest: linkedThreadPullRequest,
+          branchPullRequest: activeThreadShell?.branchPullRequest ?? activeThread.branchPullRequest,
+          onBack:
+            pullRequestsSurfaceAvailable && visiblePullRequestCount > 1
+              ? addPullRequestsSurfaceStable
+              : undefined,
+        }}
+        files={{
+          projectName: activeProject?.title ?? null,
+          workspaceRoot: activeWorkspaceRoot,
+          availableEditors,
+          pendingSurfaceIds: pendingFileSurfaceIds,
+          onOpenFile: openFileSurfaceStable,
+          onPendingChange: handleFilePendingChangeStable,
+        }}
+      />
+    ) : null;
+  const rightPanelContent = renderRightPanelSurface(renderedRightPanelSurface);
+  const rightPanelSplit = rightPanelState.split;
+  const otherPaneSurface = rightPanelSplit
+    ? (renderedRightPanelSurfaces.find(
+        (surface) => surface.id === rightPanelSplit.otherSurfaceId,
+      ) ?? null)
+    : null;
+  // Diff tabs on a nested repo show its name, so two Diff tabs side by side stay distinguishable.
+  const diffRepositoryNames = new Map<string, string>();
+  if (activeWorkspaceRoot) {
+    for (const surface of renderedRightPanelSurfaces) {
+      if (surface.kind !== "diff") continue;
+      const key =
+        surface.id === "diff" ? activeWorkspaceRoot : `${activeWorkspaceRoot}#${surface.id}`;
+      const repositoryPath = diffRepositoryByRoot[key];
+      const name = repositoryPath?.split(/[\\/]/u).findLast(Boolean);
+      if (name) diffRepositoryNames.set(surface.id, name);
+    }
+  }
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
@@ -4004,6 +4026,25 @@ export default function ChatView(props: ChatViewProps) {
           deviceAvailable={activeThreadRef !== null}
           sideChatAvailable={sideChat.available}
           sideChatDisabledReason={sideChatDisabledReason}
+          diffRepositoryNames={diffRepositoryNames}
+          {...(rightPanelSplit && activeThreadRef
+            ? {
+                split: {
+                  orientation: rightPanelSplit.orientation,
+                  focusSecond: rightPanelSplit.focusSecond,
+                  otherSurfaceId: rightPanelSplit.otherSurfaceId,
+                  otherContent: otherPaneSurface ? renderRightPanelSurface(otherPaneSurface) : null,
+                  onFocusOther: () => useRightPanelStore.getState().focusOtherPane(activeThreadRef),
+                  onToggleOrientation: () =>
+                    useRightPanelStore
+                      .getState()
+                      .setSplitOrientation(
+                        activeThreadRef,
+                        rightPanelSplit.orientation === "horizontal" ? "vertical" : "horizontal",
+                      ),
+                },
+              }
+            : {})}
         >
           {rightPanelContent}
         </ChatRightPanel>

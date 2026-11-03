@@ -33,6 +33,7 @@ import { useCheckpointDiff, useTurnItemDetail } from "~/state/queries";
 import { revisionedQuery } from "~/state/revisionedQuery";
 import { cn } from "~/lib/utils";
 import {
+  diffTabStoreRef,
   resolveToolCallDiffTarget,
   selectThreadBranchBaseRef,
   selectThreadDiffPanelSelection,
@@ -203,6 +204,8 @@ interface DiffPanelProps {
   composerDraftTarget: ScopedThreadRef | DraftId;
   workspaceMutationId: string | null;
   visible: boolean;
+  /** The Diff tab this panel renders; each tab keeps its own repo, scope, and base branch. */
+  surfaceId?: string;
 }
 
 export default function DiffPanel({
@@ -210,6 +213,7 @@ export default function DiffPanel({
   composerDraftTarget,
   workspaceMutationId,
   visible,
+  surfaceId,
 }: DiffPanelProps) {
   const resolvedTheme = useRenderedAppearance();
   const settings = useClientSettings((settings) => ({
@@ -234,6 +238,7 @@ export default function DiffPanel({
   const [codeViewRevision, setCodeViewRevision] = useState(0);
 
   const routeThreadRef = useThreadRouteRef();
+  const diffStoreRef = routeThreadRef ? diffTabStoreRef(routeThreadRef, surfaceId) : null;
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useQuietThreadShell(routeThreadRef);
   const fileAccess = useFilesystemReadAccess(activeThread?.environmentId ?? null);
@@ -258,8 +263,13 @@ export default function DiffPanel({
       : null,
   );
   const nestedRepositories = nestedRepositoriesQuery.data?.repositories ?? [];
+  // Extra Diff tabs remember their repo apart from the first tab's per-project choice.
+  const repositoryKey =
+    projectCwd && surfaceId !== undefined && surfaceId !== "diff"
+      ? `${projectCwd}#${surfaceId}`
+      : projectCwd;
   const rememberedRepositoryPath = useDiffPanelStore((state) =>
-    projectCwd ? (state.repositoryByRoot[projectCwd] ?? null) : null,
+    repositoryKey ? (state.repositoryByRoot[repositoryKey] ?? null) : null,
   );
   const selectedNestedRepository =
     nestedRepositories.find((repository) => repository.path === rememberedRepositoryPath) ?? null;
@@ -275,12 +285,12 @@ export default function DiffPanel({
     : activeProject?.repositoryIdentity;
   const rootRepositoryName = projectCwd?.split(/[\\/]/u).findLast(Boolean) ?? "Project";
   const selectRepository = (repositoryPath: string | null) => {
-    if (!projectCwd || !routeThreadRef) return;
+    if (!repositoryKey || !diffStoreRef) return;
     const store = useDiffPanelStore.getState();
-    store.selectRepository(projectCwd, repositoryPath);
+    store.selectRepository(repositoryKey, repositoryPath);
     // A remembered base branch belongs to the previous repo; each repo picks its own default.
-    store.selectBranchBaseRef(routeThreadRef, null);
-    if (diffSelection.kind === "unstaged") store.selectGitScope(routeThreadRef, "unstaged");
+    store.selectBranchBaseRef(diffStoreRef, null);
+    if (diffSelection.kind === "unstaged") store.selectGitScope(diffStoreRef, "unstaged");
   };
   const serverConfig = useAtomValue(
     serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
@@ -300,10 +310,10 @@ export default function DiffPanel({
       : null,
   );
   const diffSelection = useDiffPanelStore((state) =>
-    selectThreadDiffPanelSelection(state.byThreadKey, routeThreadRef),
+    selectThreadDiffPanelSelection(state.byThreadKey, diffStoreRef),
   );
   const rememberedBaseRef = useDiffPanelStore((state) =>
-    selectThreadBranchBaseRef(state, routeThreadRef),
+    selectThreadBranchBaseRef(state, diffStoreRef),
   );
   const toolCallSelection = diffSelection.kind === "tool-call" ? diffSelection : null;
   const isGitSelection =
@@ -331,12 +341,12 @@ export default function DiffPanel({
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- rewrites the persisted diff store selection to the latest turn when the selected turn disappears
   useEffect(() => {
-    if (!routeThreadRef || diffSelection.kind !== "turn") return;
+    if (!diffStoreRef || diffSelection.kind !== "turn") return;
     useDiffPanelStore.getState().reconcileTurnSelection(
-      routeThreadRef,
+      diffStoreRef,
       orderedTurnDiffSummaries.map((summary) => summary.runId),
     );
-  }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
+  }, [diffSelection, orderedTurnDiffSummaries, diffStoreRef]);
 
   const selectedRunId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
   const selectedGitScope =
@@ -365,8 +375,8 @@ export default function DiffPanel({
       : selectedCommitSha !== null
         ? `commit:${selectedCommitSha}`
         : selectedGitScope;
-  const collapseScopeKey = routeThreadRef
-    ? `${routeThreadRef.environmentId}:${routeThreadRef.threadId}:${reviewSectionId}`
+  const collapseScopeKey = diffStoreRef
+    ? `${diffStoreRef.environmentId}:${diffStoreRef.threadId}:${reviewSectionId}`
     : null;
   const codeViewMountKey = `${collapseScopeKey ?? reviewSectionId}:${codeViewRevision}`;
   const selectedCheckpointRange =
@@ -779,16 +789,16 @@ export default function DiffPanel({
   };
 
   const selectTurn = (runId: RunId) => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectTurn(routeThreadRef, runId);
+    if (!diffStoreRef) return;
+    useDiffPanelStore.getState().selectTurn(diffStoreRef, runId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
+    if (!diffStoreRef) return;
+    useDiffPanelStore.getState().selectGitScope(diffStoreRef, scope);
   };
   const selectBranchBaseRef = (baseRef: string | null) => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
+    if (!diffStoreRef) return;
+    useDiffPanelStore.getState().selectBranchBaseRef(diffStoreRef, baseRef);
   };
   const selectedTurnValue = selectedTurn ? `turn:${selectedTurn.runId}` : "";
   const selectedCommitValue = selectedCommitSha !== null ? `commit:${selectedCommitSha}` : "";
@@ -805,8 +815,8 @@ export default function DiffPanel({
     } else if (value === selectedCommitValue) {
       selectGitScope("branch");
     } else if (value.startsWith("commit:")) {
-      if (routeThreadRef) {
-        useDiffPanelStore.getState().selectCommit(routeThreadRef, value.slice("commit:".length));
+      if (diffStoreRef) {
+        useDiffPanelStore.getState().selectCommit(diffStoreRef, value.slice("commit:".length));
       }
     } else if (value === "latest") {
       if (latestTurn) selectTurn(latestTurn.runId);

@@ -17,6 +17,7 @@ import { type ThreadPanelPresentation } from "../../rightPanelLayout";
 import {
   selectActiveRightPanel,
   selectThreadPanelOpen,
+  selectThreadRightPanelState,
   type RightPanelSurface,
   useRightPanelStore,
 } from "../../rightPanelStore";
@@ -133,8 +134,13 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
   const createBrowserSurfaceStable = useStableCallback(createBrowserSurface);
   const addDiffSurface = () => {
     if (!activeThreadRef || !isServerThread || !isGitRepo) return;
-    useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
-    useRightPanelStore.getState().open(activeThreadRef, "diff");
+    const panel = useRightPanelStore.getState();
+    const hasDiff = selectThreadRightPanelState(panel.byThreadKey, activeThreadRef).surfaces.some(
+      (surface) => surface.kind === "diff",
+    );
+    // The first Diff tab opens on Changes; another opens as its own tab with its own view.
+    if (!hasDiff) useDiffPanelStore.getState().selectGitScope(activeThreadRef, "branch");
+    panel.addDiff(activeThreadRef);
     onDiffPanelOpen?.();
   };
   const addDiffSurfaceStable = useStableCallback(addDiffSurface);
@@ -228,17 +234,23 @@ export function useRightPanelActions(input: RightPanelActionsInput) {
     focusActivePanelTerminal(activeThreadRef);
   };
   const toggleRightPanelStable = useStableCallback(toggleRightPanel);
-  /** Cmd+\ or Cmd+/: open the right pane on its surface picker, like a new herdr pane. */
+  /** Cmd+\ or Cmd+/: open the panel on its picker, or split it into two panes like herdr. */
   const splitRightPanel = () => {
     if (!activeThreadRef) return;
-    useRightPanelStore.getState().showLauncher(activeThreadRef);
-    // Like a new herdr pane, the picker takes focus even when the panel was already open.
+    useRightPanelStore.getState().splitPanel(activeThreadRef);
+    // The new pane's picker takes focus, as a new herdr pane does.
     requestWorkspaceFocus({ area: "panel", restore: false });
   };
   const splitRightPanelStable = useStableCallback(splitRightPanel);
-  /** Cmd+D: close the right pane. Tabs stay so the next split can return to them. */
+  /** Cmd+D: close the focused pane of a split, else close the panel. Tabs stay. */
   const closeRightPane = () => {
     if (!activeThreadRef || !rightPanelOpen) return;
+    const store = useRightPanelStore.getState();
+    if (selectThreadRightPanelState(store.byThreadKey, activeThreadRef).split !== undefined) {
+      store.closeFocusedPane(activeThreadRef);
+      requestWorkspaceFocus({ area: "panel", restore: false });
+      return;
+    }
     closePreviewPanel();
     requestWorkspaceContentFocus();
   };

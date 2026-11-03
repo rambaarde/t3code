@@ -1,7 +1,7 @@
 import type { ThreadStructureVisibleTurnItem } from "@t3tools/client-runtime/state/shell";
 import { turnItemDetailRevision } from "@t3tools/client-runtime/work-log/item-detail";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
-import type { RunId, ScopedThreadRef, ThreadId, TurnItemId } from "@t3tools/contracts";
+import { type RunId, type ScopedThreadRef, ThreadId, type TurnItemId } from "@t3tools/contracts";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
@@ -21,6 +21,19 @@ export type DiffPanelSelection =
   | { kind: "turn"; turnId: RunId; filePath: string | null; revealRequestId: number };
 
 const DEFAULT_SELECTION: DiffPanelSelection = { kind: "branch", baseRef: null };
+
+/**
+ * The store key for one Diff tab. The first tab (`diff`) uses the thread's own key, so agent
+ * and link opens that select a turn or tool call land there; extra tabs keep their own view.
+ */
+export function diffTabStoreRef(
+  ref: ScopedThreadRef,
+  surfaceId: string | undefined,
+): ScopedThreadRef {
+  return surfaceId === undefined || surfaceId === "diff"
+    ? ref
+    : { ...ref, threadId: ThreadId.make(`${ref.threadId}#${surfaceId}`) };
+}
 
 interface DiffPanelStoreState {
   byThreadKey: Record<string, DiffPanelSelection>;

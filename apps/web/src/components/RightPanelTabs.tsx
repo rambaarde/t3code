@@ -40,11 +40,13 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  Columns2,
   FileDiff,
   Files,
   Globe2,
   MessagesSquare,
   Plus,
+  Rows2,
   TerminalSquare,
 } from "lucide-react";
 import { Volume2, VolumeOff } from "lucide";
@@ -61,7 +63,7 @@ import {
 
 import { isElectron } from "~/env";
 import type { DesktopPreviewOverlay } from "~/previewStateStore";
-import type { RightPanelSurface } from "~/rightPanelStore";
+import type { RightPanelSplitOrientation, RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import { resolveShortcutCommand, type ShortcutMatchContext } from "~/keybindings";
 import { readLocalApi } from "~/localApi";
@@ -154,7 +156,21 @@ export interface RightPanelTabsProps {
   /** Overrides the default reason while side chats are available but cannot start. */
   sideChatDisabledReason?: string | null;
   pullRequestStatusSeeds?: Readonly<Record<string, PullRequestTabStatusSeed>>;
+  /** Repo shown by each Diff tab that is not the project root, for tab titles like "Diff · api". */
+  diffRepositoryNames?: ReadonlyMap<string, string>;
+  /** Two panes share the tab strip; `children` is the focused pane's content. */
+  split?: RightPanelTabsSplit;
   children: ReactNode;
+}
+
+export interface RightPanelTabsSplit {
+  readonly orientation: RightPanelSplitOrientation;
+  readonly focusSecond: boolean;
+  readonly otherSurfaceId: string | null;
+  /** The unfocused pane's content; null shows an empty pane that takes focus on click. */
+  readonly otherContent: ReactNode;
+  readonly onFocusOther: () => void;
+  readonly onToggleOrientation: () => void;
 }
 
 export interface PullRequestTabStatus {
@@ -571,10 +587,11 @@ function surfaceTitle(
   surface: RightPanelSurface,
   sessions: Readonly<Record<string, PreviewSessionSnapshot>>,
   terminalLabelsById: ReadonlyMap<string, string>,
+  repositoryName?: string,
 ): string {
   switch (surface.kind) {
     case "diff":
-      return "Diff";
+      return repositoryName ? `Diff · ${repositoryName}` : "Diff";
     case "files":
       return "Files";
     case "file":
@@ -871,6 +888,8 @@ function RightPanelTab(
     surface: RightPanelSurface;
     dragDisabled: boolean;
     active: boolean;
+    /** Shown in the unfocused pane of a split. */
+    inOtherPane: boolean;
     pending: boolean;
     title: string;
     audio: TabAudioState;
@@ -1013,7 +1032,9 @@ function RightPanelTab(
         props.ownsDesktopTitleBar && "[-webkit-app-region:no-drag]",
         props.active
           ? "bg-accent text-foreground"
-          : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+          : props.inOtherPane
+            ? "bg-accent/50 text-foreground ring-1 ring-inset ring-border"
+            : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
         isDragging && "relative z-10",
       )}
     >
@@ -1315,6 +1336,29 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
     };
   };
 
+  const emptyState = (
+    <RightPanelEmptyState
+      onAddBrowser={props.onAddBrowser}
+      onAddBrowserInProfile={props.onAddBrowserInProfile}
+      browserProfiles={browserProfiles}
+      onAddTerminal={props.onAddTerminal}
+      onAddDiff={props.onAddDiff}
+      onAddFiles={props.onAddFiles}
+      onAddPullRequest={props.onAddPullRequest}
+      onAddPullRequests={props.onAddPullRequests}
+      onAddDevice={props.onAddDevice}
+      onAddSideChat={props.onAddSideChat}
+      browserAvailable={props.browserAvailable}
+      terminalAvailable={props.terminalAvailable}
+      diffAvailable={props.diffAvailable}
+      filesAvailable={props.filesAvailable}
+      pullRequestAvailable={props.pullRequestAvailable}
+      pullRequestsAvailable={props.pullRequestsAvailable}
+      deviceAvailable={props.deviceAvailable}
+      sideChatAvailable={props.sideChatAvailable === true}
+      sideChatDisabledReason={props.sideChatDisabledReason ?? null}
+    />
+  );
   return (
     <PreviewPanelShell
       workspaceArea
@@ -1364,8 +1408,14 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     surface={surface}
                     dragDisabled={!props.onMoveSurface || renamingDevice === surface.id}
                     active={surface.id === props.activeSurfaceId}
+                    inOtherPane={surface.id === props.split?.otherSurfaceId}
                     pending={props.pendingSurfaceIds.has(surface.id)}
-                    title={surfaceTitle(surface, props.previewSessions, props.terminalLabelsById)}
+                    title={surfaceTitle(
+                      surface,
+                      props.previewSessions,
+                      props.terminalLabelsById,
+                      props.diffRepositoryNames?.get(surface.id),
+                    )}
                     audio={tabAudioState(
                       previewTabId ? (props.desktopByTabId[previewTabId] ?? null) : null,
                     )}
@@ -1464,6 +1514,36 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                 </MenuPopup>
               </Menu>
             ) : null}
+            {props.split ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      aria-label={
+                        props.split.orientation === "horizontal"
+                          ? "Stack panes"
+                          : "Put panes side by side"
+                      }
+                      className="shrink-0"
+                      size="icon-xs"
+                      variant="ghost-muted"
+                      onClick={props.split.onToggleOrientation}
+                    />
+                  }
+                >
+                  {props.split.orientation === "horizontal" ? (
+                    <Rows2 className="size-3.5" />
+                  ) : (
+                    <Columns2 className="size-3.5" />
+                  )}
+                </TooltipTrigger>
+                <TooltipPopup>
+                  {props.split.orientation === "horizontal"
+                    ? "Stack panes"
+                    : "Put panes side by side"}
+                </TooltipPopup>
+              </Tooltip>
+            ) : null}
           </div>
         </ScrollArea>
         {tabScrollState.hasOverflow ? (
@@ -1522,33 +1602,74 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
         ) : null}
       </div>
       <div className="flex min-h-0 flex-1 flex-col" data-right-panel-surface-content>
-        {props.activeSurfaceId === null ? (
-          <RightPanelEmptyState
-            onAddBrowser={props.onAddBrowser}
-            onAddBrowserInProfile={props.onAddBrowserInProfile}
-            browserProfiles={browserProfiles}
-            onAddTerminal={props.onAddTerminal}
-            onAddDiff={props.onAddDiff}
-            onAddFiles={props.onAddFiles}
-            onAddPullRequest={props.onAddPullRequest}
-            onAddPullRequests={props.onAddPullRequests}
-            onAddDevice={props.onAddDevice}
-            onAddSideChat={props.onAddSideChat}
-            browserAvailable={props.browserAvailable}
-            terminalAvailable={props.terminalAvailable}
-            diffAvailable={props.diffAvailable}
-            filesAvailable={props.filesAvailable}
-            pullRequestAvailable={props.pullRequestAvailable}
-            pullRequestsAvailable={props.pullRequestsAvailable}
-            deviceAvailable={props.deviceAvailable}
-            sideChatAvailable={props.sideChatAvailable === true}
-            sideChatDisabledReason={props.sideChatDisabledReason ?? null}
+        {props.split ? (
+          <RightPanelSplitPanes
+            split={props.split}
+            focusedKey={props.activeSurfaceId ?? "focused-picker"}
+            focusedContent={props.activeSurfaceId === null ? emptyState : props.children}
           />
+        ) : props.activeSurfaceId === null ? (
+          emptyState
         ) : (
           props.children
         )}
       </div>
     </PreviewPanelShell>
+  );
+}
+
+/**
+ * Both panes live in one flex parent and are keyed by their tab, so switching focus between
+ * panes reorders them with CSS instead of remounting a terminal, browser, or diff.
+ */
+function RightPanelSplitPanes(props: {
+  split: RightPanelTabsSplit;
+  focusedKey: string;
+  focusedContent: ReactNode;
+}) {
+  const { split } = props;
+  const stacked = split.orientation === "vertical";
+  const panes = [
+    {
+      key: props.focusedKey,
+      first: !split.focusSecond,
+      focused: true,
+      content: props.focusedContent,
+    },
+    {
+      key: split.otherSurfaceId ?? "other-empty",
+      first: split.focusSecond,
+      focused: false,
+      content: split.otherContent ?? (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground text-xs">
+          Click to choose what this pane shows
+        </div>
+      ),
+    },
+  ];
+  return (
+    <div className={cn("flex min-h-0 flex-1", stacked ? "flex-col" : "flex-row")}>
+      {panes.map((pane) => (
+        <div
+          key={pane.key}
+          data-right-panel-pane={pane.focused ? "focused" : "other"}
+          style={{ order: pane.first ? 0 : 2 }}
+          className={cn(
+            "flex min-h-0 min-w-0 flex-1 basis-0 flex-col",
+            !pane.focused && "opacity-90",
+          )}
+          // Capture runs before the pane's own click, so that click acts on the focused pane.
+          onPointerDownCapture={pane.focused ? undefined : split.onFocusOther}
+        >
+          {pane.content}
+        </div>
+      ))}
+      <div
+        aria-hidden
+        style={{ order: 1 }}
+        className={cn("shrink-0 bg-border", stacked ? "h-px w-full" : "h-full w-px")}
+      />
+    </div>
   );
 }
 

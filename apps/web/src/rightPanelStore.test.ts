@@ -1245,7 +1245,7 @@ describe("rightPanelStore", () => {
     store.open(refA, "diff");
     store.close(refA);
 
-    store.showLauncher(refA);
+    store.splitPanel(refA);
     store.reconcileBrowserSurfaces(refA, ["tab-a", "tab-b"]);
     expect(
       selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA),
@@ -1253,5 +1253,71 @@ describe("rightPanelStore", () => {
 
     store.activateSurface(refA, "diff");
     expect(selectActiveRightPanel(useRightPanelStore.getState().byThreadKey, refA)).toBe("diff");
+  });
+
+  it("splits into two panes where opening the other pane's tab moves focus instead of duplicating it", () => {
+    const store = useRightPanelStore.getState();
+    const state = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA);
+    store.open(refA, "diff");
+    store.open(refA, "files");
+
+    store.splitPanel(refA);
+    expect(state()).toMatchObject({
+      activeSurfaceId: null,
+      split: { otherSurfaceId: "files", focusSecond: true, orientation: "horizontal" },
+    });
+
+    store.activateSurface(refA, "diff");
+    expect(state()).toMatchObject({ activeSurfaceId: "diff", split: { otherSurfaceId: "files" } });
+
+    store.activateSurface(refA, "files");
+    expect(state()).toMatchObject({
+      activeSurfaceId: "files",
+      split: { otherSurfaceId: "diff", focusSecond: false },
+    });
+
+    store.closeSurface(refA, "files");
+    expect(state()).toMatchObject({ activeSurfaceId: null, split: { otherSurfaceId: "diff" } });
+
+    store.closeFocusedPane(refA);
+    expect(state().activeSurfaceId).toBe("diff");
+    expect(state().split).toBeUndefined();
+  });
+
+  it("keeps the first Diff tab for agent opens and adds independent Diff tabs", () => {
+    const store = useRightPanelStore.getState();
+    const diffIds = () =>
+      selectThreadRightPanelState(useRightPanelStore.getState().byThreadKey, refA)
+        .surfaces.filter((surface) => surface.kind === "diff")
+        .map((surface) => surface.id);
+    store.addDiff(refA);
+    store.addDiff(refA);
+    expect(diffIds()).toHaveLength(2);
+    expect(diffIds()[0]).toBe("diff");
+    expect(diffIds()[1]).toMatch(/^diff:/);
+
+    store.open(refA, "diff");
+    expect(diffIds()).toHaveLength(2);
+    expect(selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, refA)?.id).toBe(
+      "diff",
+    );
+  });
+
+  it("restores a saved split and drops a pane pointing at a missing tab", () => {
+    const migrated = migratePersistedRightPanelState({
+      byThreadKey: {
+        "env-1:thread-A": {
+          isOpen: true,
+          activeSurfaceId: null,
+          surfaces: [{ id: "diff", kind: "diff" }],
+          split: { otherSurfaceId: "gone", focusSecond: true, orientation: "vertical" },
+        },
+      },
+    });
+    expect(migrated.byThreadKey["env-1:thread-A"]).toMatchObject({
+      activeSurfaceId: null,
+      split: { otherSurfaceId: null, focusSecond: true, orientation: "vertical" },
+    });
   });
 });
