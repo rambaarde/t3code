@@ -19,11 +19,14 @@ export function OmpStatusLine({
   modelLabel,
   effortLabel,
   contextWindow,
+  sessionCostUsd,
   branch,
 }: {
   readonly modelLabel: string | null;
   readonly effortLabel: string | null;
   readonly contextWindow: ContextWindowSnapshot | null;
+  /** OMP's recorded session spend; null when the provider has not reported one. */
+  readonly sessionCostUsd: number | null;
   readonly branch: string | null;
 }) {
   const percent = contextWindow?.usedPercentage ?? null;
@@ -59,6 +62,13 @@ export function OmpStatusLine({
           .join(" "),
       });
     }
+  }
+  if (sessionCostUsd !== null && sessionCostUsd > 0) {
+    parts.push({
+      key: "cost",
+      title: "Session cost",
+      node: `$${sessionCostUsd < 1 ? sessionCostUsd.toFixed(3) : sessionCostUsd.toFixed(2)}`,
+    });
   }
   if (branch) {
     parts.push({

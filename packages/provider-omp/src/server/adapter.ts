@@ -68,6 +68,8 @@ import {
 } from "./rpc.ts";
 import {
   normalizeOmpSubagentPayload,
+  ompEditDiffToUnifiedHunks,
+  ompEditTargetPath,
   normalizeOmpTodoPhases,
   normalizeOmpWebSearch,
 } from "./ompProtocol.ts";
@@ -683,12 +685,16 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         const inputTokens = nonNegativeInteger(totals, "input");
         const cachedInputTokens = nonNegativeInteger(totals, "cacheRead");
         const outputTokens = nonNegativeInteger(totals, "output");
+        const cost = recordField(stats, "cost");
         return {
           usedTokens,
           maxTokens,
           ...(inputTokens === undefined ? {} : { inputTokens }),
           ...(cachedInputTokens === undefined ? {} : { cachedInputTokens }),
           ...(outputTokens === undefined ? {} : { outputTokens }),
+          ...(typeof cost === "number" && Number.isFinite(cost) && cost >= 0
+            ? { sessionCostUsd: cost }
+            : {}),
           updatedAt: DateTime.formatIso(updatedAt),
         };
       };
@@ -1143,10 +1149,22 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
           return;
         }
         if (toolName === "edit" || toolName === "write") {
-          const fileName = recordString(args, "path") ?? recordString(args, "file_path");
+          const fileName =
+            recordString(args, "path") ??
+            recordString(args, "file_path") ??
+            (toolName === "edit" ? ompEditTargetPath(args) : undefined);
           if (fileName !== undefined) {
+            const details = recordField(resultRecord, "details");
+            const perFile = recordField(details, "perFileResults");
+            // OMP reports one combined diff; it maps to this row only for a single-file edit.
+            const ompDiff =
+              !Array.isArray(perFile) || perFile.length <= 1
+                ? recordString(details, "diff")
+                : undefined;
+            const unified = ompDiff === undefined ? undefined : ompEditDiffToUnifiedHunks(ompDiff);
             const diffStr =
-              recordString(recordField(resultRecord, "details"), "patch") ??
+              recordString(details, "patch") ??
+              unified?.hunks ??
               (isError && outputText.trim().length > 0 ? outputText : undefined);
             const newStr = toolName === "write" ? recordString(args, "content") : undefined;
             yield* emit({
@@ -1158,6 +1176,9 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
                 type: "file_change",
                 fileName,
                 ...(diffStr === undefined ? {} : { diffStr }),
+                ...(unified === undefined
+                  ? {}
+                  : { additions: unified.additions, deletions: unified.deletions }),
                 ...(newStr === undefined ? {} : { newStr }),
               },
             });

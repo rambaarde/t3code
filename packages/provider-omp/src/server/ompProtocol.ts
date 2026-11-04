@@ -169,3 +169,59 @@ function subagentProgressLine(progress: unknown): string | undefined {
   ].filter((part): part is string => Boolean(part));
   return parts.length > 0 ? parts.join(" · ").slice(0, 500) : undefined;
 }
+
+/** The first file an OMP hashline `edit` targets, from its `[path#TAG]` section header. */
+export function ompEditTargetPath(args: unknown): string | undefined {
+  const input = recordString(args, "input");
+  return input?.match(/^\[([^\]\n#]+)#[0-9A-Fa-f]{4}\]/mu)?.[1]?.trim() || undefined;
+}
+
+/**
+ * OMP's edit result diff (`" 4|ctx"`, `"-3|old"`, `"+3|new"`; a blank line between hunks;
+ * context and removals use old line numbers, additions new ones) as unified-diff hunks, so the
+ * GUI's diff viewer can render it. Undefined when the text does not have that shape.
+ */
+export function ompEditDiffToUnifiedHunks(
+  diff: string,
+): { readonly hunks: string; readonly additions: number; readonly deletions: number } | undefined {
+  const rows: Array<Array<{ kind: " " | "-" | "+"; line: number; text: string }>> = [[]];
+  for (const raw of diff.split("\n")) {
+    const match = raw.match(/^([ +-])\s*(\d+)\|(.*)$/u);
+    if (match === null) {
+      // A blank or "..." line separates hunks; anything else is not OMP's format.
+      if (raw.trim() === "" || /^\s*\.{3}\s*$/u.test(raw)) {
+        if (rows.at(-1)!.length > 0) rows.push([]);
+        continue;
+      }
+      return undefined;
+    }
+    rows.at(-1)!.push({
+      kind: match[1] as " " | "-" | "+",
+      line: Number(match[2]),
+      text: match[3] ?? "",
+    });
+  }
+  let delta = 0;
+  let additions = 0;
+  let deletions = 0;
+  const hunks: string[] = [];
+  for (const hunk of rows) {
+    if (hunk.length === 0) continue;
+    const firstOld = hunk.find((row) => row.kind !== "+");
+    const firstNew = hunk.find((row) => row.kind === "+");
+    const oldStart = firstOld?.line ?? (firstNew ? firstNew.line - delta : 1);
+    const oldCount = hunk.filter((row) => row.kind !== "+").length;
+    const newCount = hunk.filter((row) => row.kind !== "-").length;
+    const added = hunk.filter((row) => row.kind === "+").length;
+    const removed = hunk.filter((row) => row.kind === "-").length;
+    hunks.push(
+      `@@ -${oldCount === 0 ? oldStart - 1 : oldStart},${oldCount} +${newCount === 0 ? oldStart + delta - 1 : oldStart + delta},${newCount} @@`,
+      ...hunk.map((row) => `${row.kind}${row.text}`),
+    );
+    delta += added - removed;
+    additions += added;
+    deletions += removed;
+  }
+  if (hunks.length === 0) return undefined;
+  return { hunks: `${hunks.join("\n")}\n`, additions, deletions };
+}

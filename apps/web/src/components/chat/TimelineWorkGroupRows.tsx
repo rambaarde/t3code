@@ -73,11 +73,14 @@ export const WorkGroupSection = memo(function WorkGroupSection({
     use(TimelineRowCtx);
   const onToggleStandaloneEntry = (collapsed: boolean) =>
     onToggleWorkEntry(disclosureAnchorKey, collapsed);
+  // A single-entry row was already chosen to show (OMP itemizes running calls), so a call that is
+  // still running stays visible instead of waiting for its result.
+  const showRunning = isExpandedToolGroup || groupedEntries.length === 1;
   const nonEmptyEntries = groupedEntries.filter((entry) => {
     const item = entry.projectedItem?.item;
     return (
       (item?.type === "approval_request" && pendingApprovals.has(item.requestId)) ||
-      workEntryIsVisibleInGroup(entry, isExpandedToolGroup)
+      workEntryIsVisibleInGroup(entry, showRunning)
     );
   });
 

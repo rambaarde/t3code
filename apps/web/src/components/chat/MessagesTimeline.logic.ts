@@ -1560,8 +1560,12 @@ export function deriveMessagesTimelineRows(input: {
     (entry) => entry.entry.itemType === "reasoning" && (entry.entry.detail?.trim() ?? "") !== "",
   );
   const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
+  // Itemized threads (OMP) show each running call as its own row, so no live summary row.
   const activeWorkRow =
-    activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
+    input.itemizeToolCalls !== true &&
+    activeWorkAnchor &&
+    latestVisibleToolEntry &&
+    !latestToolFailed
       ? (() => {
           const groupId = workGroupId(activeWorkAnchor.id);
           return {
@@ -2112,6 +2116,8 @@ export function deriveMessagesTimelineRows(input: {
     !setupOwnsWorkingSlot &&
     !hasActiveCompaction &&
     !compactionOnlyRunFinished &&
+    // An itemized running call is its own live row with a spinner, so no "Thinking" row too.
+    !(input.itemizeToolCalls === true && latestRunningToolEntry !== undefined) &&
     (latestToolFailed || (!hasActivityRow && !input.pendingApprovalRequestIds?.size))
   ) {
     const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;

@@ -2,6 +2,8 @@ import { assert, it } from "@effect/vitest";
 
 import {
   normalizeOmpSubagentPayload,
+  ompEditDiffToUnifiedHunks,
+  ompEditTargetPath,
   normalizeOmpTodoPhases,
   normalizeOmpWebSearch,
 } from "./ompProtocol.ts";
@@ -125,4 +127,43 @@ it("keeps a search answer but drops the numbered source list it repeats", () => 
     normalizeOmpWebSearch({ query: "x" }, {}, "[1] Only a list\n    https://a.example").summary,
     undefined,
   );
+});
+
+it("turns an OMP edit result diff into unified hunks with correct line ranges", () => {
+  assert.strictEqual(
+    ompEditTargetPath({ input: "[src/math.ts#13E1]\nPUT >1:\n+export const sub = 1;" }),
+    "src/math.ts",
+  );
+  // Real shape from an OMP edit result: one replaced line plus one added line, then a later hunk.
+  const converted = ompEditDiffToUnifiedHunks(
+    [
+      " 1|---",
+      " 2|type: ai-project-context",
+      "-3|old name",
+      "+3|new name",
+      "+4|display",
+      " 4|repo",
+      "",
+      " 9|tail",
+      "-10|gone",
+    ].join("\n"),
+  );
+  assert.deepStrictEqual(converted, {
+    hunks: [
+      "@@ -1,4 +1,5 @@",
+      " ---",
+      " type: ai-project-context",
+      "-old name",
+      "+new name",
+      "+display",
+      " repo",
+      "@@ -9,2 +10,1 @@",
+      " tail",
+      "-gone",
+      "",
+    ].join("\n"),
+    additions: 2,
+    deletions: 2,
+  });
+  assert.strictEqual(ompEditDiffToUnifiedHunks("not a diff"), undefined);
 });

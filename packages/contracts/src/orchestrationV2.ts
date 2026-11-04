@@ -224,6 +224,8 @@ export const OrchestrationV2ProviderTurnTokenUsage = Schema.Struct({
   promptCacheTtlMs: Schema.optional(PositiveInt),
   autoCompactThreshold: Schema.optional(PositiveInt),
   promptCacheExpiresAt: Schema.optional(Schema.String),
+  /** The provider session's spend so far in US dollars, when the provider reports it (OMP). */
+  sessionCostUsd: Schema.optional(Schema.Number),
   updatedAt: Schema.String,
 });
 export type OrchestrationV2ProviderTurnTokenUsage =

@@ -1460,6 +1460,11 @@ export default function ChatView(props: ChatViewProps) {
     activeThreadLiveTokenUsage,
     activeProviderThread,
   );
+  // OMP reports the session's spend with each turn's usage; streaming updates omit it.
+  const ompSessionCostUsd =
+    serverProjection?.providerTurns.findLast(
+      (turn) => turn.tokenUsage?.sessionCostUsd !== undefined,
+    )?.tokenUsage?.sessionCostUsd ?? null;
   const pendingBackgroundTasks = deriveThreadPendingBackgroundTasks(serverProjection);
   const activeWorkStartedAt =
     deriveActiveWorkStartedAt(activeActivityRun, activeRuntime, localDispatchStartedAt) ??
@@ -3617,6 +3622,7 @@ export default function ChatView(props: ChatViewProps) {
                         modelLabel={providerSubagentModelLabel || null}
                         effortLabel={providerSubagentEffortLabel}
                         contextWindow={activeContextWindow}
+                        sessionCostUsd={ompSessionCostUsd}
                         branch={gitStatusQuery.data?.refName ?? activeThread?.branch ?? null}
                       />
                     ) : null}

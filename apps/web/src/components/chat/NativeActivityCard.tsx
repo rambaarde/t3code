@@ -1,4 +1,10 @@
-import type { OrchestrationV2ProjectedTurnItem } from "@t3tools/contracts";
+import type {
+  EnvironmentId,
+  OrchestrationV2ProjectedTurnItem,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
+import type { CommandOutputView } from "@t3tools/client-runtime/state/command-output";
 import {
   BotIcon,
   BrainIcon,
@@ -29,7 +35,10 @@ import { Button } from "../ui/button";
 import ChatMarkdown from "../ChatMarkdown";
 import { resolveExternalWebLinkHref } from "./externalLinkContextMenu";
 import { V2ItemInspector } from "./V2ItemInspector";
-import { TimelineRowCtx, type TimelineWorkEntry } from "./timelineRowContext";
+import { TimelineRowCtx, type TimelineWorkEntry, type TurnItemSource } from "./timelineRowContext";
+import { useCommandOutputStreaming } from "./CommandOutputPanel";
+import { orchestrationEnvironment } from "../../state/orchestration";
+import { useEnvironmentQuery } from "../../state/query";
 
 type NativeActivityItem = Extract<
   OrchestrationV2ProjectedTurnItem["item"],
@@ -60,6 +69,7 @@ export function NativeActivityCard({
   workspaceRoot: string | undefined;
 }) {
   const ctx = use(TimelineRowCtx);
+  const streamsCommandOutput = useCommandOutputStreaming(ctx.activeThreadEnvironmentId);
   const projectedItem = workEntry.projectedItem;
   if (item.type === "dynamic_tool" && isDuplicateHarnessTool(item.toolName)) return null;
 
@@ -92,6 +102,16 @@ export function NativeActivityCard({
           summary={compactActivitySummary(item.input)}
           title={item.title ?? "Command"}
           status={item.status}
+          liveTail={
+            projectedItem && (ctx.turnItemSource?.commandOutput || streamsCommandOutput) ? (
+              <LiveCommandTail
+                environmentId={ctx.activeThreadEnvironmentId}
+                threadId={projectedItem.sourceThreadId}
+                itemId={projectedItem.sourceItemId}
+                source={ctx.turnItemSource?.commandOutput}
+              />
+            ) : undefined
+          }
         >
           <code className="block max-h-32 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/35 px-2.5 py-2 font-mono text-xs leading-relaxed text-foreground/85">
             {item.input}
@@ -562,6 +582,7 @@ function ActivityCardShell({
   toolName,
   startedAt,
   completedAt,
+  liveTail,
 }: {
   children: ReactNode;
   kind: ActivityKind;
@@ -572,13 +593,15 @@ function ActivityCardShell({
   toolName?: string;
   startedAt?: unknown;
   completedAt?: unknown;
+  /** Shown under the folded row while it runs, like the terminal's live output tail. */
+  liveTail?: ReactNode;
 }) {
   const Icon = ICON_BY_ACTIVITY_KIND[kind];
   const isActive = status === "running" || status === "pending" || status === "waiting";
   const isFailed = status === "failed" || status === "cancelled" || status === "interrupted";
   // Folded by default, like a TUI tool line: the body opens on click.
   const [open, setOpen] = useState(false);
-  return (
+  const card = (
     <details
       aria-label={`${title} activity`}
       data-native-activity-card
@@ -628,6 +651,48 @@ function ActivityCardShell({
         {children}
       </div>
     </details>
+  );
+  return isActive && !open && liveTail ? (
+    <div>
+      {card}
+      {liveTail}
+    </div>
+  ) : (
+    card
+  );
+}
+
+// Escape sequences (colors, cursor moves) carry no meaning in a three-line preview.
+const ANSI_ESCAPE = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
+
+/**
+ * The last lines of a running command's output, read from the same live output stream the
+ * expanded row uses. Mounted only while the row is running and folded, so it subscribes only then.
+ */
+function LiveCommandTail({
+  environmentId,
+  threadId,
+  itemId,
+  source,
+}: {
+  environmentId: EnvironmentId;
+  threadId: ThreadId;
+  itemId: TurnItemId;
+  source: TurnItemSource["commandOutput"] | undefined;
+}) {
+  const input = { threadId, itemId };
+  const { data } = useEnvironmentQuery<CommandOutputView, unknown>(
+    source ? source(input) : orchestrationEnvironment.v2.commandOutput({ environmentId, input }),
+  );
+  const lines = (data?.output.text ?? "").replace(ANSI_ESCAPE, "").trimEnd().split("\n");
+  if (lines.length === 1 && lines[0] === "") return null;
+  return (
+    <pre
+      aria-hidden
+      className="ms-8 mb-1 overflow-hidden whitespace-pre-wrap break-words font-mono text-2xs leading-snug text-muted-foreground/80"
+    >
+      {lines.slice(-3).join("\n")}
+    </pre>
   );
 }
 
