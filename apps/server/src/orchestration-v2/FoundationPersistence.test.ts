@@ -1091,13 +1091,29 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
       const settled = deletedThread("settled");
       const failedEffect = deletedThread("failed-effect");
       const pendingEffect = deletedThread("pending-effect");
+      const retainedSource = deletedThread("live-fork-source");
+      const liveForkThreadId = ThreadId.make("thread:purge:live-fork");
+      const liveForkThread: OrchestrationV2AppThread = {
+        ...makeThread(liveForkThreadId, now),
+        lineage: {
+          parentThreadId: retainedSource.threadId,
+          relationshipToParent: "fork",
+          rootThreadId: retainedSource.threadId,
+        },
+      };
       const live = ThreadId.make("thread:purge:live");
       yield* eventSink.write({
         events: [
           ...settled.events,
           ...failedEffect.events,
           ...pendingEffect.events,
+          ...retainedSource.events,
           threadCreatedEvent({ id: "event:purge:live:create", thread: makeThread(live, now), now }),
+          threadCreatedEvent({
+            id: "event:purge:live-fork:create",
+            thread: liveForkThread,
+            now,
+          }),
         ],
       });
       const nowIso = DateTime.formatIso(now);
@@ -1133,12 +1149,29 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         events: ["thread.created", "thread.deleted"],
         nodes: 0,
       });
-      for (const kept of [failedEffect.threadId, pendingEffect.threadId]) {
+      for (const kept of [failedEffect.threadId, pendingEffect.threadId, retainedSource.threadId]) {
         assert.deepEqual(yield* history(kept), {
           events: ["thread.created", "node.updated", "thread.deleted"],
           nodes: 1,
         });
       }
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("event:purge:live-fork:delete"),
+            type: "thread.deleted",
+            threadId: liveForkThreadId,
+            providerInstanceId,
+            occurredAt: now,
+            payload: { ...liveForkThread, deletedAt: now },
+          },
+        ],
+      });
+      assert.strictEqual((yield* maintenance.purgeDeletedThreads).purgedThreadCount, 1);
+      assert.deepEqual(yield* history(retainedSource.threadId), {
+        events: ["thread.created", "thread.deleted"],
+        nodes: 0,
+      });
       assert.isTrue((yield* maintenance.verify).valid);
       assert.strictEqual((yield* maintenance.purgeDeletedThreads).purgedThreadCount, 0);
       // The layer is shared; later tests count outbox rows.

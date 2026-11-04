@@ -259,11 +259,32 @@ export const layer: Layer.Layer<
     const purgeDeletedThreads = Effect.fn("ProjectionMaintenance.purgeDeletedThreads")(function* (
       betweenThreads: Effect.Effect<void> = Effect.void,
     ) {
-      // Only threads that still hold history, so a purged thread costs nothing on later passes.
+      // A live descendant can read its ancestors' projected history. Walk both lineage and
+      // explicit fork references so deleting an ancestor cannot erase a live fork's transcript.
+      // Only threads that still hold history are candidates, so purged threads cost nothing later.
       const candidates = yield* sql<{ readonly thread_id: string }>`
+          WITH RECURSIVE retained_history(thread_id) AS (
+            SELECT thread_id
+            FROM orchestration_v2_projection_threads
+            WHERE deleted_at IS NULL
+            UNION
+            SELECT dependency.value
+            FROM orchestration_v2_projection_threads AS owner
+            JOIN retained_history AS retained ON retained.thread_id = owner.thread_id
+            CROSS JOIN json_each(json_array(
+              json_extract(owner.payload_json, '$.lineage.parentThreadId'),
+              json_extract(owner.payload_json, '$.forkedFrom.threadId')
+            )) AS dependency
+            WHERE dependency.value IS NOT NULL
+          )
           SELECT thread.thread_id
           FROM orchestration_v2_projection_threads AS thread
           WHERE thread.deleted_at IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1
+              FROM retained_history AS retained
+              WHERE retained.thread_id = thread.thread_id
+            )
             AND NOT EXISTS (
               SELECT 1 FROM orchestration_v2_effect_outbox AS effect
               WHERE effect.thread_id = thread.thread_id
