@@ -187,17 +187,23 @@ const make = Effect.gen(function* () {
       GROUP BY sizes.thread_id
       ORDER BY bytes DESC
     `;
+    // A thread with history but no projection row was removed outright; count it as deleted.
+    const isDeleted = (row: (typeof rows)[number]) => row.deleted === 1 || row.title === null;
+    const live = rows.filter((row) => !isDeleted(row));
+    const deleted = rows.filter(isDeleted);
     return {
       databaseBytes: (pages[0]?.page_count ?? 0) * pageSize,
-      threadCount: rows.length,
-      threads: rows.slice(0, THREAD_STORAGE_REPORT_LIMIT).map((row) => ({
+      threadCount: live.length,
+      threads: live.slice(0, THREAD_STORAGE_REPORT_LIMIT).map((row) => ({
         threadId: row.thread_id,
         projectId: row.project_id,
         title: row.title ?? "Untitled thread",
-        // A thread with history but no projection row was removed outright.
-        deleted: row.deleted === 1 || row.title === null,
         bytes: row.bytes,
       })),
+      deleted: {
+        threadCount: deleted.length,
+        bytes: deleted.reduce((total, row) => total + row.bytes, 0),
+      },
     } satisfies ThreadStorageReport;
   });
 

@@ -2,6 +2,7 @@ import { ThreadId } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -36,6 +37,8 @@ export interface ProjectionMaintenanceV2Shape {
     {
       readonly deletedEventCount: number;
       readonly deletedReceiptCount: number;
+      /** Deleted threads whose history was removed in this pass. */
+      readonly purgedThreadCount: number;
       readonly reclaimableBytes: number;
     },
     ProjectionMaintenanceError
@@ -229,10 +232,82 @@ export const layer: Layer.Layer<
     // Small pages bound work on the reader worker and synchronous fallback.
     const COMPACTION_PAGE_SIZE = 50;
 
+    // A deleted thread keeps its created/deleted events (replay anchors) and thread row. Purge
+    // waits a day and for every deletion effect to settle, so retried cleanup still finds rows.
+    // Messages stay: dropping them needs a search index rebuild.
+    const PURGE_DELETED_THREADS_AFTER = Duration.days(1);
+    const PURGED_THREAD_TABLES = [
+      "orchestration_v2_projection_turn_items",
+      "orchestration_v2_turn_item_positions",
+      "orchestration_v2_projection_nodes",
+      "orchestration_v2_projection_plans",
+      "orchestration_v2_projection_runs",
+      "orchestration_v2_projection_run_attempts",
+      "orchestration_v2_projection_provider_turns",
+      "orchestration_v2_projection_provider_threads",
+      "orchestration_v2_projection_provider_sessions",
+      "orchestration_v2_projection_provider_session_bindings",
+      "orchestration_v2_projection_runtime_requests",
+      "orchestration_v2_projection_checkpoints",
+      "orchestration_v2_projection_checkpoint_scopes",
+      "orchestration_v2_projection_context_handoffs",
+      "orchestration_v2_projection_subagents",
+    ] as const;
+    const purgeDeletedThreads = Effect.fn("ProjectionMaintenance.purgeDeletedThreads")(function* (
+      betweenThreads: Effect.Effect<void>,
+    ) {
+      const cutoff = DateTime.formatIso(
+        DateTime.subtractDuration(yield* DateTime.now, PURGE_DELETED_THREADS_AFTER),
+      );
+      // Only threads that still hold history, so a purged thread costs nothing on later passes.
+      const candidates = yield* sql<{ readonly thread_id: string }>`
+          SELECT thread.thread_id
+          FROM orchestration_v2_projection_threads AS thread
+          WHERE thread.deleted_at IS NOT NULL
+            AND thread.deleted_at <= ${cutoff}
+            AND NOT EXISTS (
+              SELECT 1 FROM orchestration_v2_effect_outbox AS effect
+              WHERE effect.thread_id = thread.thread_id
+                AND effect.status NOT IN ('succeeded', 'cancelled')
+            )
+            AND EXISTS (
+              SELECT 1 FROM orchestration_events AS event
+              WHERE event.aggregate_kind = 'thread'
+                AND event.stream_id = thread.thread_id
+                AND event.event_type NOT IN ('thread.created', 'thread.deleted')
+            )
+        `.pipe(NodeSqliteClient.readOnly);
+      let purgedThreadCount = 0;
+      let deletedEventCount = 0;
+      for (const { thread_id: threadId } of candidates) {
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            // The newest event in the store stays: projections record it as their sequence.
+            const removed = yield* sql<{ readonly sequence: number }>`
+                DELETE FROM orchestration_events
+                WHERE aggregate_kind = 'thread'
+                  AND stream_id = ${threadId}
+                  AND event_type NOT IN ('thread.created', 'thread.deleted')
+                  AND sequence < (SELECT MAX(sequence) FROM orchestration_events)
+                RETURNING sequence
+              `;
+            deletedEventCount += removed.length;
+            for (const table of PURGED_THREAD_TABLES) {
+              yield* sql.unsafe(`DELETE FROM ${table} WHERE thread_id = ?`, [threadId]);
+            }
+          }),
+        );
+        purgedThreadCount += 1;
+        yield* betweenThreads;
+      }
+      return { purgedThreadCount, deletedEventCount };
+    });
+
     // Keep first/latest keyed events for replay order; page every event to bound sparse scans.
     const compactEventStore = Effect.fn("ProjectionMaintenance.compactEventStore")(function* (
       betweenPages: Effect.Effect<void> = Effect.void,
     ) {
+      const purge = yield* purgeDeletedThreads(betweenPages);
       const bounds = yield* sql<{
         readonly event_sequence: number;
         readonly receipt_row_id: number;
@@ -248,7 +323,7 @@ export const layer: Layer.Layer<
       const retainedTagThreadIds = new Set<string>();
       // Retain each key's oldest candidate, deleting it only when an older event appears.
       const oldestCandidateByEntityKey = new Map<string, number | null>();
-      let deletedEventCount = 0;
+      let deletedEventCount = purge.deletedEventCount;
       let deletedReceiptCount = 0;
 
       while (throughSequence > 0) {
@@ -403,7 +478,12 @@ export const layer: Layer.Layer<
       const reclaimableBytes =
         (freelistRows[0]?.freelist_count ?? 0) * (pageSizeRows[0]?.page_size ?? 0);
 
-      return { deletedEventCount, deletedReceiptCount, reclaimableBytes };
+      return {
+        deletedEventCount,
+        deletedReceiptCount,
+        purgedThreadCount: purge.purgedThreadCount,
+        reclaimableBytes,
+      };
     }, mapError("compact event store"));
 
     return ProjectionMaintenanceV2.of({

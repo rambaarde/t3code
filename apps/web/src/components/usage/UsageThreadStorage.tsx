@@ -95,25 +95,16 @@ function ThreadRow({
     <li className="grid grid-cols-[minmax(0,1fr)_5.5rem] items-center gap-x-4 gap-y-1.5 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(4rem,12rem)_5.5rem]">
       <span className="flex min-w-0 items-center gap-2 text-sm text-foreground">
         <span aria-hidden className={cn("size-2 shrink-0 rounded-full", LEVEL_STYLE[level].bar)} />
-        {thread.deleted ? (
-          <>
-            <span className="truncate text-muted-foreground">{thread.title}</span>
-            <span className="shrink-0 rounded-sm bg-muted px-1.5 text-2xs text-muted-foreground">
-              Deleted
-            </span>
-          </>
-        ) : (
-          <Link
-            to="/$environmentId/$threadId"
-            params={buildThreadRouteParams({
-              environmentId,
-              threadId: ThreadId.make(thread.threadId),
-            })}
-            className="min-w-0 truncate hover:underline"
-          >
-            {thread.title}
-          </Link>
-        )}
+        <Link
+          to="/$environmentId/$threadId"
+          params={buildThreadRouteParams({
+            environmentId,
+            threadId: ThreadId.make(thread.threadId),
+          })}
+          className="min-w-0 truncate hover:underline"
+        >
+          {thread.title}
+        </Link>
       </span>
       <StorageBar
         bytes={thread.bytes}
@@ -181,6 +172,16 @@ function EnvironmentThreadStorage({
             <ThreadRow key={thread.threadId} environmentId={environmentId} thread={thread} />
           ))}
         </ul>
+        {data.deleted.threadCount > 0 ? (
+          <p className="flex items-center justify-between gap-4 border-t border-border/60 py-2 text-xs text-muted-foreground">
+            <span>
+              {data.deleted.threadCount} deleted{" "}
+              {data.deleted.threadCount === 1 ? "thread" : "threads"}. Their history is removed
+              automatically a day after deletion.
+            </span>
+            <span className="shrink-0 tabular-nums">{formatBytes(data.deleted.bytes)}</span>
+          </p>
+        ) : null}
         <p className="border-t border-border/60 py-2 text-xs text-muted-foreground">
           Per thread: yellow from {formatBytes(STORAGE_THRESHOLDS.thread.warning)}, red from{" "}
           {formatBytes(STORAGE_THRESHOLDS.thread.critical)}. A red thread opens slower; continue

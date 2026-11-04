@@ -1037,6 +1037,112 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
+  it.effect("purges a deleted thread's history a day later, unless an effect is unsettled", () =>
+    Effect.gen(function* () {
+      const eventSink = yield* EventSink.EventSinkV2;
+      const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
+      const sql = yield* SqlClient.SqlClient;
+      const now = yield* DateTime.now;
+      const twoDaysAgo = DateTime.subtractDuration(now, Duration.days(2));
+      const nodeEvent = (threadId: ThreadId, suffix: string): OrchestrationV2DomainEvent => {
+        const nodeId = NodeId.make(`node:purge:${suffix}`);
+        return {
+          id: EventId.make(`event:purge:${suffix}:node`),
+          type: "node.updated",
+          threadId,
+          occurredAt: now,
+          payload: {
+            id: nodeId,
+            threadId,
+            runId: null,
+            parentNodeId: null,
+            rootNodeId: nodeId,
+            kind: "assistant_message",
+            status: "completed",
+            countsForRun: false,
+            providerThreadId: null,
+            providerTurnId: null,
+            nativeItemRef: null,
+            runtimeRequestId: null,
+            checkpointScopeId: null,
+            startedAt: now,
+            completedAt: now,
+          },
+        };
+      };
+      const deletedThread = (suffix: string, deletedAt: DateTime.Utc) => {
+        const threadId = ThreadId.make(`thread:purge:${suffix}`);
+        const thread = makeThread(threadId, now);
+        return {
+          threadId,
+          events: [
+            threadCreatedEvent({ id: `event:purge:${suffix}:create`, thread, now }),
+            nodeEvent(threadId, suffix),
+            {
+              id: EventId.make(`event:purge:${suffix}:delete`),
+              type: "thread.deleted",
+              threadId,
+              providerInstanceId,
+              occurredAt: deletedAt,
+              payload: { ...thread, deletedAt },
+            } satisfies OrchestrationV2DomainEvent,
+          ],
+        };
+      };
+      const old = deletedThread("old", twoDaysAgo);
+      const failedEffect = deletedThread("failed-effect", twoDaysAgo);
+      const recent = deletedThread("recent", now);
+      const live = ThreadId.make("thread:purge:live");
+      yield* eventSink.write({
+        events: [
+          ...old.events,
+          ...failedEffect.events,
+          ...recent.events,
+          threadCreatedEvent({ id: "event:purge:live:create", thread: makeThread(live, now), now }),
+        ],
+      });
+      const nowIso = DateTime.formatIso(now);
+      yield* sql`
+        INSERT INTO orchestration_v2_effect_outbox (
+          effect_id, command_id, thread_id, effect_type, payload_json, status, attempt_count,
+          available_at, lease_owner, lease_expires_at, created_at, updated_at, completed_at, last_error
+        )
+        VALUES
+          ('effect:purge:failed', 'command:purge:failed', ${failedEffect.threadId}, 'terminal.cleanup',
+            '{}', 'failed', 3, ${nowIso}, NULL, NULL, ${nowIso}, ${nowIso}, NULL, 'boom'),
+          ('effect:purge:done', 'command:purge:done', ${old.threadId}, 'terminal.cleanup',
+            '{}', 'succeeded', 1, ${nowIso}, NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso}, NULL)
+      `;
+      const history = (threadId: ThreadId) =>
+        Effect.all({
+          events: sql<{ readonly event_type: string }>`
+            SELECT event_type FROM orchestration_events
+            WHERE aggregate_kind = 'thread' AND stream_id = ${threadId} ORDER BY sequence
+          `.pipe(Effect.map((rows) => rows.map((row) => row.event_type))),
+          nodes: sql<{ readonly count: number }>`
+            SELECT COUNT(*) AS count FROM orchestration_v2_projection_nodes
+            WHERE thread_id = ${threadId}
+          `.pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
+        });
+
+      const summary = yield* maintenance.compactEventStore();
+
+      assert.strictEqual(summary.purgedThreadCount, 1);
+      assert.deepEqual(yield* history(old.threadId), {
+        events: ["thread.created", "thread.deleted"],
+        nodes: 0,
+      });
+      for (const kept of [failedEffect.threadId, recent.threadId]) {
+        assert.deepEqual(yield* history(kept), {
+          events: ["thread.created", "node.updated", "thread.deleted"],
+          nodes: 1,
+        });
+      }
+      assert.isTrue((yield* maintenance.verify).valid);
+      assert.strictEqual((yield* maintenance.compactEventStore()).purgedThreadCount, 0);
+    }),
+  );
+
   it.effect("verifies and rebuilds projections with cross-thread subagent relations", () =>
     Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;

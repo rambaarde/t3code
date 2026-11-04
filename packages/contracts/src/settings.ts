@@ -1138,22 +1138,23 @@ export function shouldRecommendDatabaseCompaction(status: DatabaseStorageStatus)
   );
 }
 
-/** One thread's stored history: its events, turn items, and turn tree, as JSON bytes. */
+/** One live thread's stored history: its events, turn items, and turn tree, as JSON bytes. */
 export const ThreadStorageEntry = Schema.Struct({
   threadId: Schema.String,
   projectId: Schema.NullOr(Schema.String),
   title: Schema.String,
-  deleted: Schema.Boolean,
   bytes: Schema.Number,
 });
 export type ThreadStorageEntry = typeof ThreadStorageEntry.Type;
 
 export const ThreadStorageReport = Schema.Struct({
   databaseBytes: Schema.Number,
-  /** All threads with stored history, including deleted ones. */
+  /** Live threads with stored history. */
   threadCount: Schema.Number,
-  /** The largest threads first, at most `THREAD_STORAGE_REPORT_LIMIT`. */
+  /** The largest live threads first, at most `THREAD_STORAGE_REPORT_LIMIT`. */
   threads: Schema.Array(ThreadStorageEntry),
+  /** Deleted threads still holding history; compaction removes it a day after deletion. */
+  deleted: Schema.Struct({ threadCount: Schema.Number, bytes: Schema.Number }),
 });
 export type ThreadStorageReport = typeof ThreadStorageReport.Type;
 
