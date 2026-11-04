@@ -184,8 +184,11 @@ const make = Effect.gen(function* () {
       readonly bytes: number;
     }>`
       WITH sizes AS (
+        -- The created/deleted anchors outlive a purge, so they are not counted as history.
         SELECT stream_id AS thread_id, SUM(length(payload_json) + length(metadata_json)) AS bytes
-        FROM orchestration_events WHERE aggregate_kind = 'thread' GROUP BY stream_id
+        FROM orchestration_events WHERE aggregate_kind = 'thread'
+          AND event_type NOT IN ('thread.created', 'thread.deleted')
+        GROUP BY stream_id
         UNION ALL
         SELECT thread_id, SUM(length(payload_json)) FROM orchestration_v2_projection_turn_items
         GROUP BY thread_id
