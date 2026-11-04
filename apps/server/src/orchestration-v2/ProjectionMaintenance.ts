@@ -2,7 +2,6 @@ import { ThreadId } from "@t3tools/contracts";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Context from "effect/Context";
 import * as DateTime from "effect/DateTime";
-import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -41,6 +40,11 @@ export interface ProjectionMaintenanceV2Shape {
       readonly purgedThreadCount: number;
       readonly reclaimableBytes: number;
     },
+    ProjectionMaintenanceError
+  >;
+  /** Removes deleted threads' history once their deletion effects settle. */
+  readonly purgeDeletedThreads: Effect.Effect<
+    { readonly purgedThreadCount: number; readonly deletedEventCount: number },
     ProjectionMaintenanceError
   >;
 }
@@ -233,9 +237,8 @@ export const layer: Layer.Layer<
     const COMPACTION_PAGE_SIZE = 50;
 
     // A deleted thread keeps its created/deleted events (replay anchors) and thread row. Purge
-    // waits a day and for every deletion effect to settle, so retried cleanup still finds rows.
+    // waits for every deletion effect to settle, so retried cleanup still finds the rows.
     // Messages stay: dropping them needs a search index rebuild.
-    const PURGE_DELETED_THREADS_AFTER = Duration.days(1);
     const PURGED_THREAD_TABLES = [
       "orchestration_v2_projection_turn_items",
       "orchestration_v2_turn_item_positions",
@@ -254,17 +257,13 @@ export const layer: Layer.Layer<
       "orchestration_v2_projection_subagents",
     ] as const;
     const purgeDeletedThreads = Effect.fn("ProjectionMaintenance.purgeDeletedThreads")(function* (
-      betweenThreads: Effect.Effect<void>,
+      betweenThreads: Effect.Effect<void> = Effect.void,
     ) {
-      const cutoff = DateTime.formatIso(
-        DateTime.subtractDuration(yield* DateTime.now, PURGE_DELETED_THREADS_AFTER),
-      );
       // Only threads that still hold history, so a purged thread costs nothing on later passes.
       const candidates = yield* sql<{ readonly thread_id: string }>`
           SELECT thread.thread_id
           FROM orchestration_v2_projection_threads AS thread
           WHERE thread.deleted_at IS NOT NULL
-            AND thread.deleted_at <= ${cutoff}
             AND NOT EXISTS (
               SELECT 1 FROM orchestration_v2_effect_outbox AS effect
               WHERE effect.thread_id = thread.thread_id
@@ -490,6 +489,7 @@ export const layer: Layer.Layer<
       verify: mapError("verify")(verify),
       rebuild: mapError("rebuild")(rebuild),
       compactEventStore,
+      purgeDeletedThreads: mapError("purge deleted threads")(purgeDeletedThreads()),
     });
   }),
 );

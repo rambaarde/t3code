@@ -62,6 +62,7 @@ const compactionLayer = (
         compactEventStore,
         verify: Effect.die("unexpected verification"),
         rebuild: Effect.die("unexpected rebuild"),
+        purgeDeletedThreads: Effect.succeed({ purgedThreadCount: 0, deletedEventCount: 0 }),
       }),
     ),
     Layer.provide(Sqlite.layerMemory),

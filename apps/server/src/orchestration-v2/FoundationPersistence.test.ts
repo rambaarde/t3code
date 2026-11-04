@@ -1037,13 +1037,12 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
     }),
   );
 
-  it.effect("purges a deleted thread's history a day later, unless an effect is unsettled", () =>
+  it.effect("purges a deleted thread's history once its deletion effects settle", () =>
     Effect.gen(function* () {
       const eventSink = yield* EventSink.EventSinkV2;
       const maintenance = yield* ProjectionMaintenance.ProjectionMaintenanceV2;
       const sql = yield* SqlClient.SqlClient;
       const now = yield* DateTime.now;
-      const twoDaysAgo = DateTime.subtractDuration(now, Duration.days(2));
       const nodeEvent = (threadId: ThreadId, suffix: string): OrchestrationV2DomainEvent => {
         const nodeId = NodeId.make(`node:purge:${suffix}`);
         return {
@@ -1070,7 +1069,7 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
           },
         };
       };
-      const deletedThread = (suffix: string, deletedAt: DateTime.Utc) => {
+      const deletedThread = (suffix: string) => {
         const threadId = ThreadId.make(`thread:purge:${suffix}`);
         const thread = makeThread(threadId, now);
         return {
@@ -1083,21 +1082,21 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
               type: "thread.deleted",
               threadId,
               providerInstanceId,
-              occurredAt: deletedAt,
-              payload: { ...thread, deletedAt },
+              occurredAt: now,
+              payload: { ...thread, deletedAt: now },
             } satisfies OrchestrationV2DomainEvent,
           ],
         };
       };
-      const old = deletedThread("old", twoDaysAgo);
-      const failedEffect = deletedThread("failed-effect", twoDaysAgo);
-      const recent = deletedThread("recent", now);
+      const settled = deletedThread("settled");
+      const failedEffect = deletedThread("failed-effect");
+      const pendingEffect = deletedThread("pending-effect");
       const live = ThreadId.make("thread:purge:live");
       yield* eventSink.write({
         events: [
-          ...old.events,
+          ...settled.events,
           ...failedEffect.events,
-          ...recent.events,
+          ...pendingEffect.events,
           threadCreatedEvent({ id: "event:purge:live:create", thread: makeThread(live, now), now }),
         ],
       });
@@ -1110,7 +1109,9 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
         VALUES
           ('effect:purge:failed', 'command:purge:failed', ${failedEffect.threadId}, 'terminal.cleanup',
             '{}', 'failed', 3, ${nowIso}, NULL, NULL, ${nowIso}, ${nowIso}, NULL, 'boom'),
-          ('effect:purge:done', 'command:purge:done', ${old.threadId}, 'terminal.cleanup',
+          ('effect:purge:pending', 'command:purge:pending', ${pendingEffect.threadId}, 'terminal.cleanup',
+            '{}', 'pending', 0, ${nowIso}, NULL, NULL, ${nowIso}, ${nowIso}, NULL, NULL),
+          ('effect:purge:done', 'command:purge:done', ${settled.threadId}, 'terminal.cleanup',
             '{}', 'succeeded', 1, ${nowIso}, NULL, NULL, ${nowIso}, ${nowIso}, ${nowIso}, NULL)
       `;
       const history = (threadId: ThreadId) =>
@@ -1125,21 +1126,23 @@ it.layer(layerTest)("orchestration V2 foundation persistence", (it) => {
           `.pipe(Effect.map((rows) => rows[0]?.count ?? 0)),
         });
 
-      const summary = yield* maintenance.compactEventStore();
+      const purge = yield* maintenance.purgeDeletedThreads;
 
-      assert.strictEqual(summary.purgedThreadCount, 1);
-      assert.deepEqual(yield* history(old.threadId), {
+      assert.strictEqual(purge.purgedThreadCount, 1);
+      assert.deepEqual(yield* history(settled.threadId), {
         events: ["thread.created", "thread.deleted"],
         nodes: 0,
       });
-      for (const kept of [failedEffect.threadId, recent.threadId]) {
+      for (const kept of [failedEffect.threadId, pendingEffect.threadId]) {
         assert.deepEqual(yield* history(kept), {
           events: ["thread.created", "node.updated", "thread.deleted"],
           nodes: 1,
         });
       }
       assert.isTrue((yield* maintenance.verify).valid);
-      assert.strictEqual((yield* maintenance.compactEventStore()).purgedThreadCount, 0);
+      assert.strictEqual((yield* maintenance.purgeDeletedThreads).purgedThreadCount, 0);
+      // The layer is shared; later tests count outbox rows.
+      yield* sql`DELETE FROM orchestration_v2_effect_outbox WHERE effect_id LIKE 'effect:purge:%'`;
     }),
   );
 

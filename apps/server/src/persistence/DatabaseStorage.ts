@@ -148,11 +148,25 @@ const make = Effect.gen(function* () {
       ),
     ),
   );
+  // A deleted thread's history goes on the next minute tick once its cleanup effects settle;
+  // the reclaim right after returns the freed pages to disk.
+  const purgeDeletedThreads = maintenance.purgeDeletedThreads.pipe(
+    Effect.tap((result) =>
+      result.purgedThreadCount > 0
+        ? Effect.logInfo("Removed deleted threads' history", result)
+        : Effect.void,
+    ),
+    Effect.catch((cause) => Effect.logWarning("Deleted thread purge failed", { cause })),
+  );
   yield* forkParked(
     publishStatus.pipe(
       Effect.andThen(Effect.sleep("1 minute")),
       Effect.andThen(
-        reclaim.pipe(Effect.andThen(publishStatus), Effect.repeat(Schedule.spaced("1 minute"))),
+        purgeDeletedThreads.pipe(
+          Effect.andThen(reclaim),
+          Effect.andThen(publishStatus),
+          Effect.repeat(Schedule.spaced("1 minute")),
+        ),
       ),
     ),
   );

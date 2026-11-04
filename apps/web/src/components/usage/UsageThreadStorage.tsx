@@ -176,8 +176,8 @@ function EnvironmentThreadStorage({
           <p className="flex items-center justify-between gap-4 border-t border-border/60 py-2 text-xs text-muted-foreground">
             <span>
               {data.deleted.threadCount} deleted{" "}
-              {data.deleted.threadCount === 1 ? "thread" : "threads"}. Their history is removed
-              automatically a day after deletion.
+              {data.deleted.threadCount === 1 ? "thread" : "threads"} still clearing. Their history
+              is removed within a minute of their cleanup finishing.
             </span>
             <span className="shrink-0 tabular-nums">{formatBytes(data.deleted.bytes)}</span>
           </p>

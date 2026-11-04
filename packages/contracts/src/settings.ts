@@ -1153,7 +1153,7 @@ export const ThreadStorageReport = Schema.Struct({
   threadCount: Schema.Number,
   /** The largest live threads first, at most `THREAD_STORAGE_REPORT_LIMIT`. */
   threads: Schema.Array(ThreadStorageEntry),
-  /** Deleted threads still holding history; compaction removes it a day after deletion. */
+  /** Deleted threads still holding history; it is removed once their cleanup effects settle. */
   deleted: Schema.Struct({ threadCount: Schema.Number, bytes: Schema.Number }),
 });
 export type ThreadStorageReport = typeof ThreadStorageReport.Type;
