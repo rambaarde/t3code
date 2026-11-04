@@ -1213,6 +1213,12 @@ export function createServerEnvironmentAtoms<R, E>(
       concurrency: { mode: "singleFlight", key: ({ environmentId }) => environmentId },
     }),
     databaseStorage,
+    // Each read scans the event log, so reopening the Threads tab within a minute reuses it.
+    threadStorage: createEnvironmentRpcQueryAtomFamily(runtime, {
+      label: "environment-data:server:thread-storage",
+      tag: WS_METHODS.serverGetThreadStorage,
+      staleTimeMs: 60_000,
+    }),
     databaseCompactionRecommendations,
     storageCleanupReport: createEnvironmentRpcSubscriptionAtomFamily(runtime, {
       label: "environment-data:server:storage-cleanup-report",

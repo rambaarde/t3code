@@ -1138,6 +1138,27 @@ export function shouldRecommendDatabaseCompaction(status: DatabaseStorageStatus)
   );
 }
 
+/** One thread's stored history: its events, turn items, and turn tree, as JSON bytes. */
+export const ThreadStorageEntry = Schema.Struct({
+  threadId: Schema.String,
+  projectId: Schema.NullOr(Schema.String),
+  title: Schema.String,
+  deleted: Schema.Boolean,
+  bytes: Schema.Number,
+});
+export type ThreadStorageEntry = typeof ThreadStorageEntry.Type;
+
+export const ThreadStorageReport = Schema.Struct({
+  databaseBytes: Schema.Number,
+  /** All threads with stored history, including deleted ones. */
+  threadCount: Schema.Number,
+  /** The largest threads first, at most `THREAD_STORAGE_REPORT_LIMIT`. */
+  threads: Schema.Array(ThreadStorageEntry),
+});
+export type ThreadStorageReport = typeof ThreadStorageReport.Type;
+
+export const THREAD_STORAGE_REPORT_LIMIT = 100;
+
 export const StorageCleanupReportEntry = Schema.Struct({
   kind: Schema.Literals(["worktree", "browser-artifacts", "logs"]),
   outcome: Schema.Literals(["removed", "kept", "failed"]),

@@ -1,4 +1,8 @@
-import type { DatabaseStorageStatus } from "@t3tools/contracts";
+import {
+  THREAD_STORAGE_REPORT_LIMIT,
+  type DatabaseStorageStatus,
+  type ThreadStorageReport,
+} from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Duration from "effect/Duration";
@@ -11,6 +15,7 @@ import * as Schedule from "effect/Schedule";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
 import * as SqlClient from "effect/sql/SqlClient";
+import type * as SqlError from "effect/sql/SqlError";
 
 import { resolveHostCliCommand } from "../cli/invocation.ts";
 import * as ServerConfig from "../config.ts";
@@ -28,6 +33,8 @@ export class DatabaseStorage extends Context.Service<
     readonly reclaim: Effect.Effect<void>;
     /** Current file accounting, re-published after each maintenance pass. Null until first read. */
     readonly status: Stream.Stream<DatabaseStorageStatus | null>;
+    /** Bytes of stored history per thread, largest first. Scans the event log; run on demand. */
+    readonly threadStorage: Effect.Effect<ThreadStorageReport, SqlError.SqlError>;
   }
 >()("t3/persistence/DatabaseStorage") {}
 
@@ -150,7 +157,55 @@ const make = Effect.gen(function* () {
     ),
   );
 
-  return DatabaseStorage.of({ reclaim, status: SubscriptionRef.changes(statusRef) });
+  // ponytail: one full scan of the event payloads per request (~0.2 s for 250 MB). Cache a
+  // running total per thread if this ever backs a live view.
+  const threadStorage = Effect.gen(function* () {
+    const { pageSize } = yield* readLayout;
+    const pages = yield* sql<{ readonly page_count: number }>`PRAGMA page_count`;
+    const rows = yield* sql<{
+      readonly thread_id: string;
+      readonly project_id: string | null;
+      readonly title: string | null;
+      readonly deleted: number;
+      readonly bytes: number;
+    }>`
+      WITH sizes AS (
+        SELECT stream_id AS thread_id, SUM(length(payload_json) + length(metadata_json)) AS bytes
+        FROM orchestration_events WHERE aggregate_kind = 'thread' GROUP BY stream_id
+        UNION ALL
+        SELECT thread_id, SUM(length(payload_json)) FROM orchestration_v2_projection_turn_items
+        GROUP BY thread_id
+        UNION ALL
+        SELECT thread_id, SUM(length(payload_json)) FROM orchestration_v2_projection_nodes
+        GROUP BY thread_id
+      )
+      SELECT sizes.thread_id, threads.project_id, threads.title,
+        threads.deleted_at IS NOT NULL AS deleted, SUM(sizes.bytes) AS bytes
+      FROM sizes
+      LEFT JOIN orchestration_v2_projection_threads AS threads
+        ON threads.thread_id = sizes.thread_id
+      GROUP BY sizes.thread_id
+      ORDER BY bytes DESC
+    `;
+    return {
+      databaseBytes: (pages[0]?.page_count ?? 0) * pageSize,
+      threadCount: rows.length,
+      threads: rows.slice(0, THREAD_STORAGE_REPORT_LIMIT).map((row) => ({
+        threadId: row.thread_id,
+        projectId: row.project_id,
+        title: row.title ?? "Untitled thread",
+        // A thread with history but no projection row was removed outright.
+        deleted: row.deleted === 1 || row.title === null,
+        bytes: row.bytes,
+      })),
+    } satisfies ThreadStorageReport;
+  });
+
+  return DatabaseStorage.of({
+    reclaim,
+    status: SubscriptionRef.changes(statusRef),
+    threadStorage,
+  });
 });
 
 export const layer = Layer.effect(DatabaseStorage, make);

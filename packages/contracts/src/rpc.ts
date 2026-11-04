@@ -357,6 +357,7 @@ import { UsagePricing, UsageReadError, UsageSummary, UsageSummaryInput } from ".
 import {
   StorageCleanupReport,
   DatabaseStorageStatus,
+  ThreadStorageReport,
   ServerSettings,
   ServerSettingsError,
   ServerSettingsPatch,
@@ -511,6 +512,7 @@ export const WS_METHODS = {
   serverRunStorageCleanup: "server.runStorageCleanup",
   serverGetStorageCleanupReport: "server.getStorageCleanupReport",
   serverGetDatabaseStorage: "server.getDatabaseStorage",
+  serverGetThreadStorage: "server.getThreadStorage",
   peerLinksList: "peerLinks.list",
   peerLinksLink: "peerLinks.link",
   peerLinksUnlink: "peerLinks.unlink",
@@ -797,6 +799,12 @@ const WsServerGetDatabaseStorageRpc = Rpc.make(WS_METHODS.serverGetDatabaseStora
   payload: Schema.Struct({}),
   success: Schema.NullOr(DatabaseStorageStatus),
   stream: true,
+  error: EnvironmentAuthorizationError,
+});
+
+const WsServerGetThreadStorageRpc = Rpc.make(WS_METHODS.serverGetThreadStorage, {
+  payload: Schema.Struct({}),
+  success: ThreadStorageReport,
   error: EnvironmentAuthorizationError,
 });
 
@@ -2025,6 +2033,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsServerRunStorageCleanupRpc,
   WsServerGetStorageCleanupReportRpc,
   WsServerGetDatabaseStorageRpc,
+  WsServerGetThreadStorageRpc,
   WsServerUpdateSettingsRpc,
   WsPeerLinksListRpc,
   WsPeerLinksLinkRpc,
