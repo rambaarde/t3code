@@ -107,6 +107,8 @@ export interface TimelineRowActivityState {
   isPreparingWorktree: boolean;
   latestRunId: RunId | null;
   backgroundWorktreeSetup: WorktreeSetupSnapshot | null;
+  /** Stream thinking open while it runs and fold it when done, as the OMP terminal does. */
+  liveThinking: boolean;
 }
 
 export const TimelineRowCtx = createContext<TimelineRowSharedState>(null!);

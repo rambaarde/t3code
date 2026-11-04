@@ -448,6 +448,14 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
   const isReasoning = workEntry.itemType === "reasoning";
+  const { liveThinking, isWorking: timelineWorking } = use(TimelineRowActivityCtx);
+  // Live thinking shows its text until the step ends, then folds unless the user opened it.
+  const showLiveThinking =
+    liveThinking &&
+    timelineWorking &&
+    isReasoning &&
+    workEntry.toolLifecycleStatus === "inProgress" &&
+    Boolean(workEntry.detail?.trim());
   const questionHeading = workEntry.questionAnswer
     ? getQuestionTextPreview(workEntry.questionAnswer)
     : "";
@@ -690,7 +698,16 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       {expanded && workEntry.questionAnswer ? (
         <QuestionAnswerHistory answer={workEntry.questionAnswer} />
       ) : null}
-      {expanded && isReasoning ? <ReasoningTraceContent entries={[workEntry]} /> : null}
+      {(expanded || showLiveThinking) && isReasoning ? (
+        // Live thinking keeps the newest lines in view, like the terminal's tail.
+        <div
+          className={cn(
+            !expanded && "flex max-h-32 flex-col justify-end overflow-hidden opacity-70",
+          )}
+        >
+          <ReasoningTraceContent entries={[workEntry]} />
+        </div>
+      ) : null}
       {expanded &&
       !isReasoning &&
       !workEntry.questionAnswer &&

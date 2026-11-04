@@ -52,6 +52,37 @@ it("normalizes OMP subagent lifecycle payloads for live activity rows", () => {
   assert.strictEqual(normalizeOmpSubagentPayload({ status: "started" }), null);
 });
 
+it("reads a progress frame's nested id and last intent, and skips raw child events", () => {
+  // Shape of a real OMP v18 `subagent_progress` payload (trimmed).
+  const progressFrame = {
+    index: 0,
+    agent: "scout",
+    task: "Read README.md",
+    progress: {
+      id: "ReadmeFirstLine",
+      status: "running",
+      lastIntent: "Reading README first line",
+      recentTools: [{ tool: "read", intent: "Reading README first line" }],
+      toolCount: 1,
+      tokens: 9072,
+      resolvedModel: "anthropic/claude-opus-5-5:high",
+    },
+  };
+  assert.deepStrictEqual(normalizeOmpSubagentPayload(progressFrame), {
+    id: "ReadmeFirstLine",
+    agent: "scout",
+    task: "Read README.md",
+    status: "running",
+    progress: "Reading README first line · 1 tool · 9.1k tokens",
+    result: null,
+    model: "anthropic/claude-opus-5-5:high",
+  });
+  assert.strictEqual(
+    normalizeOmpSubagentPayload({ id: "ReadmeFirstLine", event: { type: "agent_start" } }),
+    null,
+  );
+});
+
 it("maps an OMP web search to its query and readable sources", () => {
   assert.deepStrictEqual(
     normalizeOmpWebSearch(

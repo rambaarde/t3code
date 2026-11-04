@@ -1409,6 +1409,8 @@ export function deriveMessagesTimelineRows(input: {
   threadStartCheckpointReady?: boolean;
   availableRevertTurnCounts?: ReadonlySet<number> | undefined;
   worktreeSetup?: WorktreeSetupSnapshot | null;
+  /** One row per tool call, like the OMP terminal, instead of "Ran 2 commands…" groups. */
+  itemizeToolCalls?: boolean;
 }): MessagesTimelineRow[] {
   const timelineEntries = timelineRowEntries(input.timelineEntries);
   const isPendingApproval = (entry: WorkLogEntry) => {
@@ -1801,6 +1803,7 @@ export function deriveMessagesTimelineRows(input: {
       if (
         isPendingApproval(timelineEntry.entry) ||
         (timelineEntry.entry.runId != null && itemizedRunIds.has(timelineEntry.entry.runId)) ||
+        (input.itemizeToolCalls === true && workLogEntryIsToolLike(timelineEntry.entry)) ||
         (timelineEntry.entry.itemType === "error" &&
           timelineEntry.entry.toolLifecycleStatus === "failed") ||
         timelineEntry.entry.tone === "error" ||

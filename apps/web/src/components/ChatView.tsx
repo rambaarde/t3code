@@ -273,6 +273,8 @@ import type { MessagesTimelineHistoryControls } from "./chat/MessagesTimeline";
 import { ThreadTimeline } from "./chat/ThreadTimeline";
 import { NativeChildWorkDialog } from "./chat/NativeChildWorkDialog";
 import { ProviderSubagentBar } from "./chat/ProviderSubagentBar";
+import { OmpStatusLine } from "./chat/OmpStatusLine";
+import { PinnedTodoPanel } from "./chat/PinnedTodoPanel";
 import { getTriggerDisplayModelName } from "./chat/providerIconUtils";
 import { resolveScrollToEndClearance } from "./composerFooterLayout";
 import { ChatHeader } from "./chat/ChatHeader";
@@ -3290,6 +3292,16 @@ export default function ChatView(props: ChatViewProps) {
             : `${activeWorkspaceRoot}#${visibleDiffSurfaceId}`
         ] ?? null)
       : null;
+  // While OMP works, its todo list stays above the composer, as in the OMP terminal.
+  const pinnedTodoPlan =
+    selectedProvider === "omp" && isWorking && serverProjection !== null
+      ? serverProjection.plans.findLast((plan) => plan.kind === "todo_list")
+      : undefined;
+  const pinnedTodoSteps =
+    pinnedTodoPlan?.kind === "todo_list" &&
+    pinnedTodoPlan.steps.some((step) => step.status !== "completed")
+      ? pinnedTodoPlan.steps
+      : null;
   const panelToggleControlProps = {
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
@@ -3463,6 +3475,7 @@ export default function ChatView(props: ChatViewProps) {
                   isWorking={isWorking}
                   runlessWorkActive={runlessWorkStartedAt !== null}
                   isCompacting={isCompacting}
+                  itemizeToolCalls={selectedProvider === "omp"}
                   awaitingUser={
                     activePendingApproval !== null
                       ? "approval"
@@ -3598,6 +3611,15 @@ export default function ChatView(props: ChatViewProps) {
                     }
                   >
                     <ChildThreadApprovals threadRef={activeThreadRef} />
+                    {pinnedTodoSteps ? <PinnedTodoPanel steps={pinnedTodoSteps} /> : null}
+                    {selectedProvider === "omp" && composerMounted ? (
+                      <OmpStatusLine
+                        modelLabel={providerSubagentModelLabel || null}
+                        effortLabel={providerSubagentEffortLabel}
+                        contextWindow={activeContextWindow}
+                        branch={gitStatusQuery.data?.refName ?? activeThread?.branch ?? null}
+                      />
+                    ) : null}
                     <ComposerSurface.Shell contextRow={showComposerContextStrip}>
                       <ComposerSurface.Host
                         inert={queuedRunEdit.isSaving}

@@ -359,6 +359,8 @@ interface ActivePiTurn {
   readonly toolArgs: Map<string, unknown>;
   /** One-line intents (`i`) from the assistant's tool calls; tool events omit them. */
   readonly toolIntents: Map<string, string>;
+  /** Start events of calls without an end yet, so the turn's end can close them. */
+  readonly openToolCalls: Map<string, PiRpcRecord>;
   readonly toolStartedAt: Map<string, DateTime.Utc>;
   interrupted: boolean;
   nativeAborted: boolean;
@@ -767,6 +769,20 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         startedAt,
         updatedAt,
       });
+      // ponytail: grows by one entry per OMP subagent for the session's life; prune if sessions
+      // ever run thousands of subagents.
+      const ompSubagentSnapshots = new Map<
+        string,
+        {
+          readonly id: string;
+          readonly agent: string;
+          readonly task: string;
+          readonly status: "running" | "completed" | "failed" | "interrupted";
+          readonly progress: string | undefined;
+          readonly result: string | null;
+          readonly model: string | undefined;
+        }
+      >();
       // ponytail: in-memory only; after a server restart a carried-over list shows once more.
       const lastTodoSignatureByThread = new Map<string, string>();
       const emitTodoSnapshot = Effect.fnUntraced(function* (turn: ActivePiTurn, data: unknown) {
@@ -1058,9 +1074,19 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         // Pi tags every phase of a call made through ctx.executeTool, such as from a codemode script.
         const parentToolCallId = recordString(event, "parentToolCallId");
         if (toolCallId === undefined) return;
+        // An async tool (task) can report progress after it ends; a late update must not reopen it.
+        if (
+          phase === "update" &&
+          !turn.openToolCalls.has(toolCallId) &&
+          turn.toolStartedAt.has(toolCallId)
+        ) {
+          return;
+        }
         if (phase === "start") {
           turn.toolArgs.set(toolCallId, event["args"]);
+          turn.openToolCalls.set(toolCallId, event);
         }
+        if (phase === "end") turn.openToolCalls.delete(toolCallId);
         const args = event["args"] ?? turn.toolArgs.get(toolCallId);
         const emittedAt = yield* DateTime.now;
         const startedAt = turn.toolStartedAt.get(toolCallId) ?? emittedAt;
@@ -1267,8 +1293,24 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         }
       });
       const emitOmpSubagent = Effect.fnUntraced(function* (turn: ActivePiTurn, payload: unknown) {
-        const snapshot = normalizeOmpSubagentPayload(payload);
-        if (snapshot === null) return;
+        const frame = normalizeOmpSubagentPayload(payload);
+        if (frame === null) return;
+        // Lifecycle and progress frames each carry part of the picture; keep what earlier frames
+        // said, and never reopen a subagent that already finished.
+        const previous = ompSubagentSnapshots.get(frame.id);
+        const snapshot = {
+          id: frame.id,
+          agent: frame.agent ?? previous?.agent ?? "subagent",
+          task: frame.task ?? previous?.task ?? "",
+          status:
+            previous !== undefined && previous.status !== "running" && frame.status === "running"
+              ? previous.status
+              : frame.status,
+          progress: frame.progress ?? previous?.progress,
+          result: frame.result ?? previous?.result ?? null,
+          model: frame.model ?? previous?.model,
+        };
+        ompSubagentSnapshots.set(frame.id, snapshot);
         const nativeTaskId = `omp-subagent:${snapshot.id}`;
         const subagentId = idAllocator.derive.nodeFromProviderItem({
           driver: OMP_PROVIDER,
@@ -1670,6 +1712,10 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
         const interrupted = turn.interrupted || turn.nativeAborted;
         const completedAt = yield* DateTime.now;
         yield* completeOpenStreamItems(turn);
+        // A call whose end never arrived is over once the turn is; do not leave it "running".
+        for (const startEvent of Array.from(turn.openToolCalls.values())) {
+          yield* emitToolItem(turn, { ...startEvent, isError: interrupted }, "end");
+        }
         if (turn.activeCompaction !== null) {
           const status = interrupted ? "cancelled" : turn.failure === null ? "completed" : "failed";
           yield* emitCompaction(turn, turn.activeCompaction, status);
@@ -2688,6 +2734,7 @@ export const makeOmpAdapterV2 = Effect.fn("makeOmpAdapterV2")(function* (
               streamItems: new Map(),
               toolArgs: new Map(),
               toolIntents: new Map(),
+              openToolCalls: new Map(),
               toolStartedAt: new Map(),
               interrupted: false,
               nativeAborted: false,

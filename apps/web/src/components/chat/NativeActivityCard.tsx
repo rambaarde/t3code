@@ -21,7 +21,9 @@ import {
   WrenchIcon,
   type LucideIcon,
 } from "lucide-react";
-import { use, useState, type ReactNode } from "react";
+import { use, useState, useSyncExternalStore, type ReactNode } from "react";
+import { secondTick } from "@t3tools/client-runtime/clock";
+import * as DateTime from "effect/DateTime";
 
 import { Button } from "../ui/button";
 import ChatMarkdown from "../ChatMarkdown";
@@ -84,6 +86,8 @@ export function NativeActivityCard({
     case "command_execution":
       return (
         <ActivityCardShell
+          startedAt={item.startedAt}
+          completedAt={item.completedAt}
           kind="command"
           summary={compactActivitySummary(item.input)}
           title={item.title ?? "Command"}
@@ -103,6 +107,8 @@ export function NativeActivityCard({
     case "file_search":
       return (
         <ActivityCardShell
+          startedAt={item.startedAt}
+          completedAt={item.completedAt}
           kind="file-search"
           meta={item.results?.length ? `${item.results.length} matches` : undefined}
           summary={compactActivitySummary(item.pattern)}
@@ -141,6 +147,8 @@ export function NativeActivityCard({
     case "web_search":
       return (
         <ActivityCardShell
+          startedAt={item.startedAt}
+          completedAt={item.completedAt}
           kind="web-search"
           meta={item.results?.length ? `${item.results.length} sources` : undefined}
           summary={compactActivitySummary(item.patterns?.join(", "))}
@@ -205,6 +213,8 @@ export function NativeActivityCard({
     case "subagent":
       return (
         <ActivityCardShell
+          startedAt={item.startedAt}
+          completedAt={item.completedAt}
           kind="subagent"
           summary={compactActivitySummary(item.prompt)}
           title={item.title ?? "Task"}
@@ -256,6 +266,8 @@ export function NativeActivityCard({
       const inputRows = toolInputRows(item.input);
       return (
         <ActivityCardShell
+          startedAt={item.startedAt}
+          completedAt={item.completedAt}
           kind={activityKindForTool(toolName)}
           summary={toolPrimaryArgument(item.input)}
           // OMP sends each call's intent as its title, like the TUI's per-tool line.
@@ -499,6 +511,47 @@ const ICON_BY_ACTIVITY_KIND: Record<ActivityKind, LucideIcon> = {
   "web-search": GlobeIcon,
 };
 
+const NO_SUBSCRIPTION = () => () => {};
+const NO_TIME = () => 0;
+/** The current second while `active`; 0 without subscribing otherwise, so idle rows never tick. */
+function useNowSecondWhile(active: boolean): number {
+  return useSyncExternalStore(
+    active ? secondTick.subscribe : NO_SUBSCRIPTION,
+    active ? secondTick.getSnapshot : NO_TIME,
+    active ? secondTick.getSnapshot : NO_TIME,
+  );
+}
+/** Milliseconds from a decoded `DateTime` or an ISO string; null when absent. */
+function epochMillis(value: unknown): number | null {
+  if (DateTime.isDateTime(value)) return DateTime.toEpochMillis(value);
+  if (typeof value === "string") {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+/** Like the OMP terminal: "0.4s" under ten seconds, "23s", then "1m 5s". */
+function formatActivityDuration(ms: number): string {
+  if (ms < 10_000) return `${(Math.max(0, ms) / 1000).toFixed(1)}s`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
+function ActivityElapsed({ startedAt, completedAt }: { startedAt: unknown; completedAt: unknown }) {
+  const start = epochMillis(startedAt);
+  const end = epochMillis(completedAt);
+  // Ticks only while running; a finished row renders a fixed duration.
+  const now = useNowSecondWhile(end === null && start !== null);
+  if (start === null) return null;
+  return (
+    <span className="shrink-0 font-mono text-2xs text-muted-foreground tabular-nums">
+      {formatActivityDuration((end ?? now) - start)}
+    </span>
+  );
+}
+
 function ActivityCardShell({
   children,
   kind,
@@ -507,6 +560,8 @@ function ActivityCardShell({
   summary,
   title,
   toolName,
+  startedAt,
+  completedAt,
 }: {
   children: ReactNode;
   kind: ActivityKind;
@@ -515,11 +570,14 @@ function ActivityCardShell({
   summary: string | undefined;
   title: string;
   toolName?: string;
+  startedAt?: unknown;
+  completedAt?: unknown;
 }) {
   const Icon = ICON_BY_ACTIVITY_KIND[kind];
   const isActive = status === "running" || status === "pending" || status === "waiting";
   const isFailed = status === "failed" || status === "cancelled" || status === "interrupted";
-  const [open, setOpen] = useState(isActive);
+  // Folded by default, like a TUI tool line: the body opens on click.
+  const [open, setOpen] = useState(false);
   return (
     <details
       aria-label={`${title} activity`}
@@ -541,6 +599,7 @@ function ActivityCardShell({
           <span className="flex-1" />
         )}
         {meta ? <span className="shrink-0 text-2xs text-muted-foreground">{meta}</span> : null}
+        <ActivityElapsed startedAt={startedAt} completedAt={completedAt} />
         <span className="sr-only">{activityStatusLabel(status)}</span>
         {isActive ? (
           <LoaderCircleIcon
