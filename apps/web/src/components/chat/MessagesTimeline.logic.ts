@@ -1409,8 +1409,6 @@ export function deriveMessagesTimelineRows(input: {
   threadStartCheckpointReady?: boolean;
   availableRevertTurnCounts?: ReadonlySet<number> | undefined;
   worktreeSetup?: WorktreeSetupSnapshot | null;
-  /** One row per tool call, like the OMP terminal, instead of "Ran 2 commands…" groups. */
-  itemizeToolCalls?: boolean;
 }): MessagesTimelineRow[] {
   const timelineEntries = timelineRowEntries(input.timelineEntries);
   const isPendingApproval = (entry: WorkLogEntry) => {
@@ -1560,12 +1558,8 @@ export function deriveMessagesTimelineRows(input: {
     (entry) => entry.entry.itemType === "reasoning" && (entry.entry.detail?.trim() ?? "") !== "",
   );
   const activeWorkPlacementEntryId = latestVisibleToolEntry?.id;
-  // Itemized threads (OMP) show each running call as its own row, so no live summary row.
   const activeWorkRow =
-    input.itemizeToolCalls !== true &&
-    activeWorkAnchor &&
-    latestVisibleToolEntry &&
-    !latestToolFailed
+    activeWorkAnchor && latestVisibleToolEntry && !latestToolFailed
       ? (() => {
           const groupId = workGroupId(activeWorkAnchor.id);
           return {
@@ -1807,7 +1801,6 @@ export function deriveMessagesTimelineRows(input: {
       if (
         isPendingApproval(timelineEntry.entry) ||
         (timelineEntry.entry.runId != null && itemizedRunIds.has(timelineEntry.entry.runId)) ||
-        (input.itemizeToolCalls === true && workLogEntryIsToolLike(timelineEntry.entry)) ||
         (timelineEntry.entry.itemType === "error" &&
           timelineEntry.entry.toolLifecycleStatus === "failed") ||
         timelineEntry.entry.tone === "error" ||
@@ -2116,8 +2109,6 @@ export function deriveMessagesTimelineRows(input: {
     !setupOwnsWorkingSlot &&
     !hasActiveCompaction &&
     !compactionOnlyRunFinished &&
-    // An itemized running call is its own live row with a spinner, so no "Thinking" row too.
-    !(input.itemizeToolCalls === true && latestRunningToolEntry !== undefined) &&
     (latestToolFailed || (!hasActivityRow && !input.pendingApprovalRequestIds?.size))
   ) {
     const failedGroupAnchor = latestToolFailed ? activeWorkAnchor : undefined;

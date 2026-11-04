@@ -30,9 +30,11 @@ export function OmpStatusLine({
   readonly branch: string | null;
 }) {
   const percent = contextWindow?.usedPercentage ?? null;
-  const parts: Array<{ key: string; node: ReactNode; title?: string }> = [];
+  // `optional` parts drop first when the composer is narrow, so the rest never truncate.
+  const parts: Array<{ key: string; node: ReactNode; title?: string; optional?: boolean }> = [];
   if (modelLabel) parts.push({ key: "model", node: modelLabel });
-  if (effortLabel) parts.push({ key: "effort", node: effortLabel, title: "Thinking level" });
+  if (effortLabel)
+    parts.push({ key: "effort", node: effortLabel, title: "Thinking level", optional: true });
   if (contextWindow) {
     const max = contextWindow.maxTokens;
     parts.push({
@@ -53,6 +55,7 @@ export function OmpStatusLine({
       parts.push({
         key: "tokens",
         title: "Last turn: input, cached input, output tokens",
+        optional: true,
         node: [
           input === null ? null : `↑${formatStatusTokens(input)}`,
           cached === null || cached === 0 ? null : `⟳${formatStatusTokens(cached)}`,
@@ -86,16 +89,23 @@ export function OmpStatusLine({
   return (
     <div
       data-omp-status-line
-      className="flex min-w-0 items-center gap-1.5 overflow-hidden px-3 py-1 font-mono text-2xs text-muted-foreground tabular-nums"
+      className="@container flex min-w-0 items-center gap-1.5 overflow-hidden bg-background px-3 py-1 font-mono text-2xs whitespace-nowrap text-muted-foreground tabular-nums"
     >
       {parts.map((part, index) => (
-        <span key={part.key} className="flex min-w-0 shrink items-center gap-1.5">
+        <span
+          key={part.key}
+          className={cn(
+            "items-center gap-1.5",
+            part.key === "branch" ? "flex min-w-0" : "shrink-0",
+            part.optional ? "hidden @xl:flex" : part.key === "branch" ? "" : "flex",
+          )}
+        >
           {index > 0 ? (
             <span aria-hidden className="text-muted-foreground/50">
               ·
             </span>
           ) : null}
-          <span className="min-w-0 truncate">
+          <span className={part.key === "branch" ? "min-w-0 truncate" : undefined}>
             {part.title ? <span className="sr-only">{part.title}: </span> : null}
             {part.node}
           </span>

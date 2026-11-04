@@ -3480,7 +3480,7 @@ export default function ChatView(props: ChatViewProps) {
                   isWorking={isWorking}
                   runlessWorkActive={runlessWorkStartedAt !== null}
                   isCompacting={isCompacting}
-                  itemizeToolCalls={selectedProvider === "omp"}
+                  terminalActivity={selectedProvider === "omp"}
                   awaitingUser={
                     activePendingApproval !== null
                       ? "approval"

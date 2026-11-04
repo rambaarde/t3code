@@ -23,10 +23,20 @@ it("normalizes OMP todo phases into stable T3 step statuses", () => {
       ],
     }),
     [
-      { id: "todo-1-1", text: "Work: Inspect files", status: "completed" },
-      { id: "todo-1-2", text: "Work: Show activity", status: "running" },
-      { id: "todo-1-3", text: "Work: Ignore me", status: "pending" },
+      { id: "todo-1-1", text: "Inspect files", status: "completed" },
+      { id: "todo-1-2", text: "Show activity", status: "running" },
+      { id: "todo-1-3", text: "Ignore me", status: "pending" },
     ],
+  );
+  // Several phases keep the phase name so steps stay distinguishable.
+  assert.deepStrictEqual(
+    normalizeOmpTodoPhases({
+      todoPhases: [
+        { name: "Build", tasks: [{ content: "Write code", status: "completed" }] },
+        { name: "Ship", tasks: [{ content: "Install", status: "pending" }] },
+      ],
+    }).map((step) => step.text),
+    ["Build: Write code", "Ship: Install"],
   );
 });
 

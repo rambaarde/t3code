@@ -25,7 +25,7 @@ export function PinnedTodoPanel({
     <section
       aria-label="Current tasks"
       data-pinned-todo-panel
-      className="mx-1 mb-1 rounded-lg border border-border/60 bg-card/80 px-2 py-1 text-xs"
+      className="mx-1 mb-1 rounded-lg border border-border/60 bg-card px-2 py-1 text-xs"
     >
       <button
         type="button"

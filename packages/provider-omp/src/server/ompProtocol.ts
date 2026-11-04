@@ -25,7 +25,8 @@ export function normalizeOmpTodoPhases(input: unknown): ReadonlyArray<OmpTodoSte
             : "pending";
       steps.push({
         id: `todo-${phaseIndex + 1}-${itemIndex + 1}`,
-        text: phaseName === undefined ? content : `${phaseName}: ${content}`,
+        // One phase names the whole list; repeating it on every step only adds noise.
+        text: phaseName === undefined || phases.length === 1 ? content : `${phaseName}: ${content}`,
         status,
       });
     }

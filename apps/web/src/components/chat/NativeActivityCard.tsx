@@ -669,7 +669,7 @@ const ANSI_ESCAPE = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
  * The last lines of a running command's output, read from the same live output stream the
  * expanded row uses. Mounted only while the row is running and folded, so it subscribes only then.
  */
-function LiveCommandTail({
+export function LiveCommandTail({
   environmentId,
   threadId,
   itemId,

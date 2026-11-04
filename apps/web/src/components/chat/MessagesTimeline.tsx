@@ -236,8 +236,8 @@ interface MessagesTimelineProps {
   onOpenWorktreeSetupTerminal?: (terminalId: string) => void;
   isPreparingWorktree?: boolean;
   isCompacting?: boolean;
-  /** One row per tool call instead of grouped summaries, as the OMP terminal shows them. */
-  itemizeToolCalls?: boolean;
+  /** OMP terminal-style activity: streaming thinking, step count, and live command output. */
+  terminalActivity?: boolean;
   awaitingUser?: "approval" | "input" | null;
   /** Which request is waiting, so a second one of the same kind is announced too. */
   awaitingRequestId?: string | null;
@@ -353,7 +353,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
   onOpenWorktreeSetupTerminal,
   isPreparingWorktree = false,
   isCompacting = false,
-  itemizeToolCalls = false,
+  terminalActivity = false,
   awaitingUser = null,
   awaitingRequestId = null,
   listRef,
@@ -685,7 +685,6 @@ const ConversationTimeline = memo(function ConversationTimeline({
     threadStartCheckpointReady,
     availableRevertTurnCounts,
     worktreeSetup,
-    itemizeToolCalls,
   });
   const rows = useStableRows(rawRows, listIdentityKey);
   const matchedApprovalRequestIds = new Set<string>();
@@ -1079,7 +1078,7 @@ const ConversationTimeline = memo(function ConversationTimeline({
     awaitingUser: awaitingUser !== null,
     isPreparingWorktree,
     latestRunId: latestRun?.runId ?? null,
-    liveThinking: itemizeToolCalls,
+    terminalActivity,
   };
   // Mounted in both the empty and filled timeline so a thread's first turn
   // starts from a baseline instead of a fresh, silent region.

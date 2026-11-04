@@ -448,10 +448,10 @@ function WorkEntryLogRow(props: WorkEntryRowProps) {
       ? undefined
       : (workEntry.toolIcon ?? workEntry.toolSource?.icon);
   const isReasoning = workEntry.itemType === "reasoning";
-  const { liveThinking, isWorking: timelineWorking } = use(TimelineRowActivityCtx);
+  const { terminalActivity, isWorking: timelineWorking } = use(TimelineRowActivityCtx);
   // Live thinking shows its text until the step ends, then folds unless the user opened it.
   const showLiveThinking =
-    liveThinking &&
+    terminalActivity &&
     timelineWorking &&
     isReasoning &&
     workEntry.toolLifecycleStatus === "inProgress" &&

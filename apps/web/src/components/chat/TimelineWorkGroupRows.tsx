@@ -55,6 +55,8 @@ import {
   workEntryIconName,
 } from "./TimelineWorkEntryRow.logic";
 import { formatWorkingTimerNow } from "./TimelineWorkGroupRows.logic";
+import { useCommandOutputStreaming } from "./CommandOutputPanel";
+import { LiveCommandTail } from "./NativeActivityCard";
 
 export const WorkGroupSection = memo(function WorkGroupSection({
   anchorKey,
@@ -73,14 +75,11 @@ export const WorkGroupSection = memo(function WorkGroupSection({
     use(TimelineRowCtx);
   const onToggleStandaloneEntry = (collapsed: boolean) =>
     onToggleWorkEntry(disclosureAnchorKey, collapsed);
-  // A single-entry row was already chosen to show (OMP itemizes running calls), so a call that is
-  // still running stays visible instead of waiting for its result.
-  const showRunning = isExpandedToolGroup || groupedEntries.length === 1;
   const nonEmptyEntries = groupedEntries.filter((entry) => {
     const item = entry.projectedItem?.item;
     return (
       (item?.type === "approval_request" && pendingApprovals.has(item.requestId)) ||
-      workEntryIsVisibleInGroup(entry, showRunning)
+      workEntryIsVisibleInGroup(entry, isExpandedToolGroup)
     );
   });
 
@@ -484,11 +483,14 @@ export function LiveWorkEntryTimelineRow({
   row: Extract<TimelineRow, { kind: "work-live" }>;
 }) {
   const ctx = use(TimelineRowCtx);
+  const { terminalActivity } = use(TimelineRowActivityCtx);
+  const streamsCommandOutput = useCommandOutputStreaming(ctx.activeThreadEnvironmentId);
   const threadTarget = useThreadReadTarget(row.entry, ctx.activeThreadEnvironmentId);
   const label = liveWorkEntryLabel(row.entry, ctx.workspaceRoot, row.active);
   const threadLabel = threadReadLabel(label, threadTarget);
 
-  const item = row.entry.projectedItem?.item;
+  const projectedItem = row.entry.projectedItem;
+  const item = projectedItem?.item;
   const pendingApproval =
     item?.type === "approval_request" ? ctx.pendingApprovals.get(item.requestId) : undefined;
   if (pendingApproval) return <TimelinePendingApprovalRow approval={pendingApproval} />;
@@ -496,80 +498,125 @@ export function LiveWorkEntryTimelineRow({
   const failed = workEntryDisplayIndicatesToolFailure(row.entry);
   const thoughtLine = row.thought && !row.expanded ? liveThoughtLine(row.thought.detail ?? "") : "";
   const thoughtIsStatus = thoughtLine !== "" && row.entry === row.thought;
+  // Like the OMP terminal: the running command's newest output lines stay in view while folded.
+  const commandTail =
+    terminalActivity &&
+    row.active &&
+    !row.expanded &&
+    projectedItem &&
+    item?.type === "command_execution" &&
+    item.status === "running" &&
+    (ctx.turnItemSource?.commandOutput || streamsCommandOutput) ? (
+      <LiveCommandTail
+        environmentId={ctx.activeThreadEnvironmentId}
+        threadId={projectedItem.sourceThreadId}
+        itemId={projectedItem.sourceItemId}
+        source={ctx.turnItemSource?.commandOutput}
+      />
+    ) : null;
+  const steps = row.groupedEntries.filter((entry) => entry.itemType !== "reasoning").length;
+  const liveRow = (
+    <LiveActivityRow
+      label={
+        thoughtIsStatus ? (
+          row.active ? (
+            "Thinking"
+          ) : (
+            "Thought"
+          )
+        ) : row.entry.itemType === "reasoning" ? (
+          <ChatMarkdown
+            inline
+            text={row.entry.detail ?? label}
+            cwd={ctx.markdownCwd}
+            parseRawHtml={false}
+            extraRemarkPlugins={row.active ? THINKING_PREVIEW_PLUGINS : THOUGHT_PREVIEW_PLUGINS}
+          />
+        ) : threadLabel ? (
+          <ThreadReadLabel
+            label={threadLabel}
+            environmentId={ctx.activeThreadEnvironmentId}
+            linked={false}
+          />
+        ) : (
+          label
+        )
+      }
+      iconName={workEntryIconName(row.entry)}
+      toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
+      failed={failed}
+      active={row.active}
+    />
+  );
 
   return (
-    <button
-      type="button"
-      className={cn(
-        "group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
-        thoughtLine ? "flex-col items-start" : "min-h-6 items-center",
-      )}
-      aria-label={
-        failed
-          ? `${thoughtLine ? `${thoughtLine} ` : ""}${threadLabel?.text ?? label}, tool call failed`
-          : undefined
-      }
-      aria-expanded={row.expanded}
-      onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
-    >
-      {thoughtLine ? (
-        <WorkLogRow
-          icon={
-            <span className="flex size-4 items-center justify-center text-icon-muted">
-              <ToolActivityIconView
-                icon={undefined}
-                fallbackName="brain"
-                className="block size-4 shrink-0 stroke-2"
-                muted
-              />
-            </span>
-          }
-          label={
-            <span className="line-clamp-4">
-              <ChatMarkdown
-                inline
-                text={thoughtLine}
-                cwd={ctx.markdownCwd}
-                parseRawHtml={false}
-                extraRemarkPlugins={THOUGHT_PREVIEW_PLUGINS}
-              />
-            </span>
-          }
-          wrapLabel
-        />
-      ) : null}
-      <LiveActivityRow
-        label={
-          thoughtIsStatus ? (
-            row.active ? (
-              "Thinking"
-            ) : (
-              "Thought"
-            )
-          ) : row.entry.itemType === "reasoning" ? (
-            <ChatMarkdown
-              inline
-              text={row.entry.detail ?? label}
-              cwd={ctx.markdownCwd}
-              parseRawHtml={false}
-              extraRemarkPlugins={row.active ? THINKING_PREVIEW_PLUGINS : THOUGHT_PREVIEW_PLUGINS}
-            />
-          ) : threadLabel ? (
-            <ThreadReadLabel
-              label={threadLabel}
-              environmentId={ctx.activeThreadEnvironmentId}
-              linked={false}
-            />
-          ) : (
-            label
-          )
+    <>
+      <button
+        type="button"
+        className={cn(
+          "group/live-work flex w-full max-w-full cursor-pointer rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
+          thoughtLine ? "flex-col items-start" : "min-h-6 items-center",
+        )}
+        aria-label={
+          failed
+            ? `${thoughtLine ? `${thoughtLine} ` : ""}${threadLabel?.text ?? label}, tool call failed`
+            : undefined
         }
-        iconName={workEntryIconName(row.entry)}
-        toolIcon={row.entry.toolIcon ?? row.entry.toolSource?.icon}
-        failed={failed}
-        active={row.active}
-      />
-    </button>
+        aria-expanded={row.expanded}
+        onClick={() => ctx.onToggleWorkGroup(row.groupId, row.id)}
+      >
+        {thoughtLine ? (
+          <WorkLogRow
+            icon={
+              <span className="flex size-4 items-center justify-center text-icon-muted">
+                <ToolActivityIconView
+                  icon={undefined}
+                  fallbackName="brain"
+                  className="block size-4 shrink-0 stroke-2"
+                  muted
+                />
+              </span>
+            }
+            label={
+              <span className="line-clamp-4">
+                <ChatMarkdown
+                  inline
+                  text={thoughtLine}
+                  cwd={ctx.markdownCwd}
+                  parseRawHtml={false}
+                  extraRemarkPlugins={THOUGHT_PREVIEW_PLUGINS}
+                />
+              </span>
+            }
+            wrapLabel
+          />
+        ) : null}
+        {terminalActivity && steps > 1 ? (
+          // One dropdown for the whole run: the live step, then how many steps and for how long.
+          <span className="flex w-full min-w-0 items-center gap-2">
+            <span className="min-w-0 flex-1">{liveRow}</span>
+            <span className="flex shrink-0 items-center gap-1.5 text-2xs text-muted-foreground tabular-nums">
+              <span>
+                {steps} {steps === 1 ? "step" : "steps"}
+                {row.active && row.createdAt ? (
+                  <>
+                    {" · "}
+                    <WorkingTimer createdAt={row.createdAt} />
+                  </>
+                ) : null}
+              </span>
+              <ChevronDownIcon
+                aria-hidden
+                className={cn("size-3.5 transition-transform", row.expanded && "rotate-180")}
+              />
+            </span>
+          </span>
+        ) : (
+          liveRow
+        )}
+      </button>
+      {commandTail}
+    </>
   );
 }
 
